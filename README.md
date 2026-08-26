@@ -1,8 +1,8 @@
 # Craaft MCP Server
 
-Model Context Protocol server for [Craaft](https://craaft.io) — lets AI assistants read and write your Kanban boards.
+Model Context Protocol server for [Craaft](https://craaft.io) - lets AI assistants read and write your Kanban boards.
 
-Deployed as an HTTP service. Each request authenticates via the caller's `Authorization: Bearer cra_*` header — the same personal access tokens used by the Craaft REST API.
+Deployed as an HTTP service. Each request authenticates via the caller's `Authorization: Bearer cra_*` header - the same personal access tokens used by the Craaft REST API.
 
 ## Deploy
 
