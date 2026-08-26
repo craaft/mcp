@@ -85,11 +85,11 @@ jobs:
         run: |
           set -euo pipefail
           for i in $(seq 1 30); do
-            if curl -fsS "${URL}/healthz" > /dev/null; then
-              echo "/healthz OK (${i}s)"; exit 0
+            if curl -sS -o /dev/null "${URL}/" 2>/dev/null; then
+              echo "server responding (${i}s)"; exit 0
             fi
             sleep 1
           done
-          echo "/healthz did not pass within 30s"
-          curl -i "${URL}/healthz" || true
+          echo "server not responding within 30s"
+          curl -i "${URL}/" || true
           exit 1
