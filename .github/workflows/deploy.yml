@@ -1,0 +1,99 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+# Required GitHub repo configuration (Settings → Secrets and variables → Actions → Variables):
+#   GCP_PROJECT          - GCP project id
+#   GCP_REGION           - Cloud Run region (e.g. "us-central1")
+#   GCP_AR_REPO          - Artifact Registry repo name (e.g. "containers")
+#   GCP_RUN_SERVICE      - Cloud Run service name (e.g. "craaft-mcp")
+#   GCP_WIF_PROVIDER     - full WIF provider resource name
+#   GCP_DEPLOY_SA        - service-account email for the workflow
+#
+# Optional:
+#   CRAAFT_BASE_URL      - upstream Craaft API (default: https://craaft.io)
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT }}/${{ vars.GCP_AR_REPO }}/craaft-mcp
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+          token_format: access_token
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${{ vars.GCP_REGION }}-docker.pkg.dev" --quiet
+
+      - name: Build image
+        env:
+          SHA: ${{ github.sha }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          docker build \
+            --build-arg "VERSION=${VERSION}" \
+            --build-arg "COMMIT=${SHA}" \
+            --build-arg "BUILD_TIME=${BUILD_TIME}" \
+            -t "${IMAGE}:${SHA}" \
+            -t "${IMAGE}:latest" \
+            .
+
+      - name: Push image
+        run: |
+          docker push "${IMAGE}:${{ github.sha }}"
+          docker push "${IMAGE}:latest"
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@2028e2d7d30a78c6910e0632e48dd561b064884d # v3.0.1
+        with:
+          service: ${{ vars.GCP_RUN_SERVICE }}
+          region: ${{ vars.GCP_REGION }}
+          image: ${{ env.IMAGE }}:${{ github.sha }}
+          env_vars: |-
+            CRAAFT_BASE_URL=${{ vars.CRAAFT_BASE_URL || 'https://craaft.io' }}
+
+      - name: Print service URL
+        id: url
+        run: |
+          URL=$(gcloud run services describe "${{ vars.GCP_RUN_SERVICE }}" \
+            --region "${{ vars.GCP_REGION }}" --format='value(status.url)')
+          echo "Deployed: ${URL}"
+          echo "url=${URL}" >> "${GITHUB_OUTPUT}"
+
+      - name: Post-deploy smoke test
+        env:
+          URL: ${{ steps.url.outputs.url }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            if curl -fsS "${URL}/healthz" > /dev/null; then
+              echo "/healthz OK (${i}s)"; exit 0
+            fi
+            sleep 1
+          done
+          echo "/healthz did not pass within 30s"
+          curl -i "${URL}/healthz" || true
+          exit 1
