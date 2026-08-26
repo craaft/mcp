@@ -45,7 +45,11 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(getServer, nil))
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.NotFound(w, r)
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, `{"status":"ok"}`)
 	})
