@@ -108,11 +108,14 @@ type Column struct {
 }
 
 type Card struct {
-	ID               string  `json:"id"`
-	ProjectID        string  `json:"projectId"`
-	Column           string  `json:"column"`
-	Title            string  `json:"title"`
-	Description      string  `json:"description"`
+	ID        string `json:"id"`
+	ProjectID string `json:"projectId"`
+	Column    string `json:"column"`
+	Title     string `json:"title"`
+	// Description is omitted from GET /projects/{id}/cards. Use GetCard or
+	// GetCardDetail for the body. omitempty keeps a board-list card from
+	// looking like it has an empty description.
+	Description      string  `json:"description,omitempty"`
 	Position         float64 `json:"position"`
 	DueDate          *string `json:"dueDate"`
 	AssignedUserID   *string `json:"assignedUserId"`
@@ -139,18 +142,30 @@ type Comment struct {
 	CardID     string `json:"cardId"`
 	AuthorID   string `json:"authorId"`
 	AuthorName string `json:"authorName"`
+	AuthorImg  string `json:"authorImg,omitempty"`
 	Body       string `json:"body"`
 	CreatedAt  string `json:"createdAt"`
 	UpdatedAt  string `json:"updatedAt"`
 }
 
+// CardDetail is the GET /cards/{id}/detail envelope: the card (with
+// description) plus the collections the modal used to fetch separately.
+type CardDetail struct {
+	Card        Card            `json:"card"`
+	Comments    []Comment       `json:"comments"`
+	Events      []CardEvent     `json:"events"`
+	Checklist   []ChecklistItem `json:"checklist"`
+	Attachments []Attachment    `json:"attachments"`
+}
+
 type SearchResult struct {
-	ID           string  `json:"id"`
-	ProjectID    string  `json:"projectId"`
-	ProjectName  string  `json:"projectName"`
-	ColumnKey    string  `json:"columnKey"`
-	ColumnTitle  string  `json:"columnTitle"`
-	Title        string  `json:"title"`
+	ID          string `json:"id"`
+	ProjectID   string `json:"projectId"`
+	ProjectName string `json:"projectName"`
+	ColumnKey   string `json:"columnKey"`
+	ColumnTitle string `json:"columnTitle"`
+	Title       string `json:"title"`
+	// Description is a ≤180-character snippet, not the full body.
 	Description  string  `json:"description"`
 	DueDate      *string `json:"dueDate"`
 	AssignedUser *string `json:"assignedUserName"`
@@ -391,7 +406,8 @@ func (c *Client) CreateCard(ctx context.Context, projectID string, card Card) (*
 
 // GetCard reads a single card. Added to the platform on 2026-08-28; before
 // it existed, reading one card meant pulling its entire board with GetBoard
-// and filtering client-side.
+// and filtering client-side. Board list cards omit description — this is
+// the cheap way to fetch the body without the nested collections.
 func (c *Client) GetCard(ctx context.Context, cardID string) (*Card, error) {
 	data, _, err := c.do(ctx, http.MethodGet, "/api/v1/cards/"+url.PathEscape(cardID), nil)
 	if err != nil {
@@ -402,6 +418,34 @@ func (c *Client) GetCard(ctx context.Context, cardID string) (*Card, error) {
 		return nil, fmt.Errorf("decode card: %w", err)
 	}
 	return &card, nil
+}
+
+// GetCardDetail is GET /cards/{id}/detail — card (with description) plus
+// comments, events (newest 100, oldest-first), checklist and attachments
+// in one authorised round-trip. Prefer this over five sequential GETs
+// when opening a card.
+func (c *Client) GetCardDetail(ctx context.Context, cardID string) (*CardDetail, error) {
+	data, _, err := c.do(ctx, http.MethodGet, "/api/v1/cards/"+url.PathEscape(cardID)+"/detail", nil)
+	if err != nil {
+		return nil, err
+	}
+	var out CardDetail
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil, fmt.Errorf("decode card detail: %w", err)
+	}
+	if out.Comments == nil {
+		out.Comments = []Comment{}
+	}
+	if out.Events == nil {
+		out.Events = []CardEvent{}
+	}
+	if out.Checklist == nil {
+		out.Checklist = []ChecklistItem{}
+	}
+	if out.Attachments == nil {
+		out.Attachments = []Attachment{}
+	}
+	return &out, nil
 }
 
 func (c *Client) UpdateCard(ctx context.Context, cardID string, patch map[string]any) (*Card, error) {

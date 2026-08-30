@@ -34,6 +34,16 @@ func TestLiveGetCardAndSearch(t *testing.T) {
 	}
 	t.Logf("get_card OK: %q", got.Title)
 
+	detail, err := c.GetCardDetail(ctx, want.ID)
+	if err != nil {
+		t.Fatalf("GetCardDetail: %v", err)
+	}
+	if detail.Card.ID != want.ID {
+		t.Errorf("GetCardDetail card id = %q, want %q", detail.Card.ID, want.ID)
+	}
+	t.Logf("get_card_detail OK: comments=%d events=%d checklist=%d attachments=%d",
+		len(detail.Comments), len(detail.Events), len(detail.Checklist), len(detail.Attachments))
+
 	// The queries that used to break.
 	for _, q := range []string{"#design", "50% off", "a&b", "new card", "design"} {
 		res, err := c.SearchCards(ctx, q, 20)

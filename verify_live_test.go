@@ -99,6 +99,16 @@ func TestLiveNewSurfaces(t *testing.T) {
 		t.Errorf("delete left %d items, want %d", len(after), len(items)-1)
 	}
 
+	detail, err := c.GetCardDetail(ctx, made[0].ID)
+	if err != nil {
+		t.Fatalf("GetCardDetail: %v", err)
+	}
+	if detail.Card.ID != made[0].ID {
+		t.Errorf("GetCardDetail card id = %q, want %q", detail.Card.ID, made[0].ID)
+	}
+	t.Logf("get_card_detail    -> checklist=%d events=%d comments=%d",
+		len(detail.Checklist), len(detail.Events), len(detail.Comments))
+
 	// card activity - the bulk move above should have produced a moved event
 	events, err := c.GetCardEvents(ctx, made[0].ID)
 	if err != nil {

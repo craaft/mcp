@@ -99,8 +99,11 @@ func registerTools(s *mcp.Server, c *Client) {
 		Cards   []Card  `json:"cards"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "get_board",
-		Description: "Get a Kanban board: its columns and every card with metadata (title, description, due date, assignee, priority, size, tags, checklist progress).",
+		Name: "get_board",
+		Description: "Get a Kanban board: its columns and every card with metadata (title, due date, " +
+			"assignee, priority, size, tags, checklist progress). Card descriptions are omitted — use " +
+			"get_card for the body, or get_card_detail for the body plus comments, events, checklist " +
+			"and attachments in one call.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args getBoardArgs) (*mcp.CallToolResult, getBoardResult, error) {
 		project, cards, err := c.GetBoard(ctx, args.ProjectID)
 		if err != nil {
@@ -118,8 +121,10 @@ func registerTools(s *mcp.Server, c *Client) {
 		Results []SearchResult `json:"results"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "search_cards",
-		Description: "Search for cards across all accessible projects by title and description text.",
+		Name: "search_cards",
+		Description: "Search for cards across all accessible projects by title and description text. " +
+			"Each hit's description is a ≤180-character snippet, not the full body — use get_card or " +
+			"get_card_detail when you need the rest.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args searchCardsArgs) (*mcp.CallToolResult, searchCardsResult, error) {
 		limit := args.Limit
 		if limit <= 0 {
@@ -141,15 +146,40 @@ func registerTools(s *mcp.Server, c *Client) {
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "get_card",
-		Description: "Get a single card by its ID, with full metadata (title, description, due date, " +
-			"assignee, priority, size, tags, checklist progress). Prefer this over get_board when you " +
-			"already know the card ID - get_board returns every card on the board.",
+		Description: "Get a single card by its ID, with full metadata including description. Prefer this " +
+			"over get_board when you already know the card ID — get_board omits description and returns " +
+			"every card on the board. Use get_card_detail instead when you also need comments, events, " +
+			"checklist or attachments.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args getCardArgs) (*mcp.CallToolResult, getCardResult, error) {
 		card, err := c.GetCard(ctx, args.CardID)
 		if err != nil {
 			return nil, getCardResult{}, err
 		}
 		return nil, getCardResult{Card: *card}, nil
+	})
+
+	// ── get_card_detail ───────────────────────────────────────────
+	type getCardDetailResult struct {
+		Card        Card            `json:"card"`
+		Comments    []Comment       `json:"comments"`
+		Events      []CardEvent     `json:"events"`
+		Checklist   []ChecklistItem `json:"checklist"`
+		Attachments []Attachment    `json:"attachments"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "get_card_detail",
+		Description: "Get a card plus its comments, activity events (newest 100, oldest-first), " +
+			"checklist and attachments in one call. Prefer this over get_card + get_comments + " +
+			"get_card_activity + get_checklist + list_attachments — one authorised round-trip instead of five.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args getCardArgs) (*mcp.CallToolResult, getCardDetailResult, error) {
+		d, err := c.GetCardDetail(ctx, args.CardID)
+		if err != nil {
+			return nil, getCardDetailResult{}, err
+		}
+		return nil, getCardDetailResult{
+			Card: d.Card, Comments: d.Comments, Events: d.Events,
+			Checklist: d.Checklist, Attachments: d.Attachments,
+		}, nil
 	})
 
 	// ── create_card ───────────────────────────────────────────────

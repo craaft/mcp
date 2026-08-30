@@ -83,3 +83,58 @@ func TestPathSegmentsAreEscaped(t *testing.T) {
 		t.Errorf("sent %q, want %q", seen, want)
 	}
 }
+
+func TestGetCardDetailEscapesPathAndDecodes(t *testing.T) {
+	var seen string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = r.URL.RequestURI()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"card":        map[string]any{"id": "c1", "title": "Hello", "description": "full body"},
+			"comments":    []any{},
+			"events":      []any{},
+			"checklist":   []any{},
+			"attachments": []any{},
+		})
+	}))
+	t.Cleanup(srv.Close)
+	c := NewClient(srv.URL, "cra_testtoken")
+
+	d, err := c.GetCardDetail(context.Background(), "../../admin/users")
+	if err != nil {
+		t.Fatalf("GetCardDetail: %v", err)
+	}
+	if seen != "/api/v1/cards/..%2F..%2Fadmin%2Fusers/detail" {
+		t.Errorf("sent %q, want escaped /detail path", seen)
+	}
+	if d.Card.Title != "Hello" || d.Card.Description != "full body" {
+		t.Errorf("card = %+v", d.Card)
+	}
+	if d.Comments == nil || d.Events == nil || d.Checklist == nil || d.Attachments == nil {
+		t.Errorf("nil slices in detail: comments=%v events=%v checklist=%v atts=%v",
+			d.Comments, d.Events, d.Checklist, d.Attachments)
+	}
+}
+
+// Board-list cards omit description. Re-encoding them must not invent an
+// empty body, or an agent would think every card is blank.
+func TestBoardCardOmitsEmptyDescription(t *testing.T) {
+	var card Card
+	if err := json.Unmarshal([]byte(`{"id":"1","title":"A","column":"todo"}`), &card); err != nil {
+		t.Fatal(err)
+	}
+	if card.Description != "" {
+		t.Fatalf("unmarshalled description = %q, want empty", card.Description)
+	}
+	raw, err := json.Marshal(card)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m["description"]; ok {
+		t.Errorf("re-encoded board card includes description: %s", raw)
+	}
+}

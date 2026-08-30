@@ -40,9 +40,10 @@ The `PORT` env var is set automatically by Cloud Run.
 | Tool | Description |
 |------|-------------|
 | `list_projects` | List all accessible Kanban projects |
-| `get_board` | Get a board's columns and cards |
-| `get_card` | Get a single card by ID. Prefer over `get_board` when the card ID is known |
-| `search_cards` | Cross-project card search |
+| `get_board` | Get a board's columns and cards (descriptions omitted) |
+| `get_card` | Get a single card by ID, including description |
+| `get_card_detail` | Card plus comments, events, checklist and attachments in one call |
+| `search_cards` | Cross-project card search (description is a ≤180-char snippet) |
 | `create_card` | Create a card with title, column, and optional metadata |
 | `update_card` | Update a card's title, description, column, priority, assignee, etc. |
 | `move_card` | Move a card to another column or board |
