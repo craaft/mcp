@@ -17,7 +17,7 @@ func TestLiveListTags(t *testing.T) {
 	}
 	c, ctx := NewClient(base, tok), context.Background()
 
-	proj, err := c.CreateProject(ctx, "mcp-tags-scratch", "")
+	proj, err := c.CreateProject(ctx, "mcp-tags-scratch", "", "")
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
@@ -83,11 +83,14 @@ func TestLiveListTags(t *testing.T) {
 			doneID = col.ID
 		}
 	}
-	n, err := c.ArchiveColumn(ctx, doneID)
+	n, ids, err := c.ArchiveColumn(ctx, doneID)
 	if err != nil {
 		t.Fatalf("ArchiveColumn: %v", err)
 	}
-	t.Logf("archive        -> %d card(s) archived", n)
+	t.Logf("archive        -> %d card(s) archived, ids=%v", n, ids)
+	if len(ids) != n {
+		t.Errorf("got %d ids for %d archived cards", len(ids), n)
+	}
 
 	after, err := c.ListTags(ctx, proj.ID)
 	if err != nil {

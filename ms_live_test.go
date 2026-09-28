@@ -16,7 +16,7 @@ func TestLiveMilestonesSharingAvatar(t *testing.T) {
 	}
 	c, ctx := NewClient(base, tok), context.Background()
 
-	proj, err := c.CreateProject(ctx, "mcp-ms-scratch", "")
+	proj, err := c.CreateProject(ctx, "mcp-ms-scratch", "", "")
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}

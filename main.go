@@ -722,16 +722,22 @@ func registerTools(s *mcp.Server, c *Client) {
 	type createProjectArgs struct {
 		Name        string `json:"name" jsonschema:"board name, max 200 characters"`
 		Description string `json:"description,omitempty" jsonschema:"optional description"`
+		Template    string `json:"template,omitempty" jsonschema:"optional board template key from list_board_templates (e.g. 'sprint', 'bug-tracker'); omit for the default 'kanban' layout. An unknown key is rejected"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "create_project",
-		Description: "Create a board. It starts with the default To Do / In Progress / Done columns. " +
-			"A Free workspace is capped at 3 projects and returns 402 beyond that.",
+		Description: "Create a board. Without a template it starts with the default To Do / In Progress / " +
+			"Done columns; pass template (a key from list_board_templates) to start from a different " +
+			"column layout instead. IMPORTANT: the response from this call never includes columns (that " +
+			"field is only populated by get_project/get_board, not by create) - and only the default " +
+			"'kanban' template uses the todo/doing/done keys anyway, every other template generates its " +
+			"own - so call get_project on the new board's id to read the real columns[].key before " +
+			"creating cards on it. A Free workspace is capped at 3 projects and returns 402 beyond that.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args createProjectArgs) (*mcp.CallToolResult, projectResult, error) {
 		if args.Name == "" {
 			return nil, projectResult{}, fmt.Errorf("name is required")
 		}
-		p, err := c.CreateProject(ctx, args.Name, args.Description)
+		p, err := c.CreateProject(ctx, args.Name, args.Description, args.Template)
 		if err != nil {
 			return nil, projectResult{}, err
 		}
@@ -898,26 +904,288 @@ func registerTools(s *mcp.Server, c *Client) {
 	})
 
 	type archiveResult struct {
-		Archived int    `json:"archived"`
-		Note     string `json:"note,omitempty"`
+		Archived int      `json:"archived"`
+		IDs      []string `json:"ids"`
+		Note     string   `json:"note,omitempty"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "archive_column",
 		Description: "Archive every card currently in a column. The cards leave the board but are not " +
 			"deleted, and the column itself stays. IMPORTANT: the server only archives cards in a " +
 			"column marked as a done column (is_done), and returns 200 with a count of 0 otherwise - " +
-			"it does not error. Check the returned count rather than assuming it worked.",
+			"it does not error. Check the returned count rather than assuming it worked. The returned " +
+			"ids let you undo the sweep by calling restore_card on each one.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args columnIDArgs) (*mcp.CallToolResult, archiveResult, error) {
-		n, err := c.ArchiveColumn(ctx, args.ColumnID)
+		n, ids, err := c.ArchiveColumn(ctx, args.ColumnID)
 		if err != nil {
 			return nil, archiveResult{}, err
 		}
-		res := archiveResult{Archived: n}
+		res := archiveResult{Archived: n, IDs: ids}
 		if n == 0 {
 			res.Note = "nothing archived - the column was already empty, or it is not marked as a " +
 				"done column (set is_done with update_column if that is what you intended)"
 		}
 		return nil, res, nil
+	})
+
+	// ── card archive / restore ──────────────────────────────────────
+	type archiveCardResult struct {
+		Archived bool   `json:"archived"`
+		ID       string `json:"id"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "archive_card",
+		Description: "Archive a card: take it off its board without deleting it. It stays searchable and " +
+			"shows up in list_archived_cards until restored. Archiving a card that is already archived, " +
+			"or one you can't reach, returns an error.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args cardIDArgs) (*mcp.CallToolResult, archiveCardResult, error) {
+		if err := c.ArchiveCard(ctx, args.CardID); err != nil {
+			return nil, archiveCardResult{}, err
+		}
+		return nil, archiveCardResult{Archived: true, ID: args.CardID}, nil
+	})
+
+	type restoreCardResult struct {
+		Card Card `json:"card"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "restore_card",
+		Description: "Restore an archived card. It goes back to the exact column and position it was " +
+			"archived from, so don't follow this with a move_card or update_card to 'put it back' - " +
+			"restore already does that. Restoring a card that isn't archived returns an error.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args cardIDArgs) (*mcp.CallToolResult, restoreCardResult, error) {
+		card, err := c.RestoreCard(ctx, args.CardID)
+		if err != nil {
+			return nil, restoreCardResult{}, err
+		}
+		return nil, restoreCardResult{Card: *card}, nil
+	})
+
+	type archivedCardsResult struct {
+		Cards []ArchivedCard `json:"cards"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "list_archived_cards",
+		Description: "List a board's archived cards, most recently archived first, capped at 200. Same " +
+			"lean shape as get_board's cards (description omitted) plus archivedAt. Older archived cards " +
+			"beyond the cap stay reachable through search_cards. An inaccessible board returns an empty " +
+			"list rather than an error.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args projectIDArgs) (*mcp.CallToolResult, archivedCardsResult, error) {
+		cards, err := c.ListArchivedCards(ctx, args.ProjectID)
+		if err != nil {
+			return nil, archivedCardsResult{}, err
+		}
+		return nil, archivedCardsResult{Cards: cards}, nil
+	})
+
+	// ── board templates ──────────────────────────────────────────────
+	type boardTemplatesResult struct {
+		Templates []BoardTemplate `json:"templates"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "list_board_templates",
+		Description: "List the fixed catalogue of board templates (kanban, sprint, bug tracker, content " +
+			"calendar, sales pipeline, ...) - the same for every caller, any authenticated user, no plan " +
+			"gate. Pass a template's key as the template argument on create_project to start a board with " +
+			"that column layout instead of the default To Do / In Progress / Done. Only the default " +
+			"'kanban' template seeds todo/doing/done column keys - every other template generates its " +
+			"own, and this list doesn't expose them, so read columns[].key from the created project.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, boardTemplatesResult, error) {
+		templates, err := c.ListBoardTemplates(ctx)
+		if err != nil {
+			return nil, boardTemplatesResult{}, err
+		}
+		return nil, boardTemplatesResult{Templates: templates}, nil
+	})
+
+	// ── webhooks (outbound) ──────────────────────────────────────────
+	type webhookResult struct {
+		Webhook WebhookSubscription `json:"webhook"`
+	}
+	type webhooksResult struct {
+		Webhooks       []WebhookSubscription `json:"webhooks"`
+		EventCatalogue []string              `json:"eventCatalogue"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "list_webhooks",
+		Description: "List a board's outbound webhook subscriptions plus the catalogue of broadcast " +
+			"event names available to filter on. Board admins only - a Free workspace gets 402, a board " +
+			"member who isn't an admin gets 403. Each subscription's signing secret is included in full " +
+			"on every read - handle it as sensitive, never print or log it whole.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args projectIDArgs) (*mcp.CallToolResult, webhooksResult, error) {
+		whs, cat, err := c.ListWebhooks(ctx, args.ProjectID)
+		if err != nil {
+			return nil, webhooksResult{}, err
+		}
+		return nil, webhooksResult{Webhooks: whs, EventCatalogue: cat}, nil
+	})
+
+	type createWebhookArgs struct {
+		ProjectID   string   `json:"project_id" jsonschema:"project UUID"`
+		URL         string   `json:"url" jsonschema:"absolute http(s) destination URL; a private, loopback or link-local address is rejected"`
+		Description string   `json:"description,omitempty" jsonschema:"optional label"`
+		Format      string   `json:"format,omitempty" jsonschema:"'craaft' (default, signed JSON envelope), 'slack', or 'discord' (message posted to those services' incoming-webhook URLs, unsigned)"`
+		Events      []string `json:"events,omitempty" jsonschema:"broadcast event names to deliver, from list_webhooks' event_catalogue (e.g. 'card.created', 'card.updated'); omit or empty to subscribe to every event"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "create_webhook",
+		Description: "Register an outbound webhook on a board: Craaft POSTs matching board events to the " +
+			"given URL as they happen. Board admins on Pro boards only - a Free workspace gets 402. The " +
+			"response carries a signing secret for 'craaft'-format deliveries (X-Craaft-Signature header); " +
+			"treat it as sensitive, it is returned again in full on every list/update read, never " +
+			"redacted. 'slack' and 'discord' deliveries are unsigned chat messages instead, authenticated " +
+			"only by the secret URL itself.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args createWebhookArgs) (*mcp.CallToolResult, webhookResult, error) {
+		if args.URL == "" {
+			return nil, webhookResult{}, fmt.Errorf("url is required")
+		}
+		wh, err := c.CreateWebhook(ctx, args.ProjectID, args.URL, args.Description, args.Format, args.Events)
+		if err != nil {
+			return nil, webhookResult{}, err
+		}
+		return nil, webhookResult{Webhook: *wh}, nil
+	})
+
+	type updateWebhookArgs struct {
+		SubscriptionID string    `json:"subscription_id" jsonschema:"webhook subscription UUID - the 'id' field from list_webhooks/create_webhook, NOT endpointId"`
+		URL            string    `json:"url,omitempty" jsonschema:"new destination URL (omit to leave unchanged)"`
+		Description    string    `json:"description,omitempty" jsonschema:"new label (omit to leave unchanged)"`
+		Format         string    `json:"format,omitempty" jsonschema:"'craaft', 'slack' or 'discord' (omit to leave unchanged)"`
+		Events         *[]string `json:"events,omitempty" jsonschema:"replace the event filter (empty array = subscribe to every event); omit to leave unchanged"`
+		Active         *bool     `json:"active,omitempty" jsonschema:"pause (false) or resume (true) delivery"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "update_webhook",
+		Description: "Update a webhook subscription: pause/resume it, or change its URL, format or event " +
+			"filter. Omitted fields are left unchanged. Needs Pro even though the webhook already exists " +
+			"- on a downgraded (Free) board this returns 402; delete_webhook stays open so a downgraded " +
+			"workspace can still clean up.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args updateWebhookArgs) (*mcp.CallToolResult, webhookResult, error) {
+		patch := map[string]any{}
+		if args.URL != "" {
+			patch["url"] = args.URL
+		}
+		if args.Description != "" {
+			patch["description"] = args.Description
+		}
+		if args.Format != "" {
+			patch["format"] = args.Format
+		}
+		if args.Events != nil {
+			patch["events"] = *args.Events
+		}
+		if args.Active != nil {
+			patch["active"] = *args.Active
+		}
+		if len(patch) == 0 {
+			return nil, webhookResult{}, fmt.Errorf("nothing to update")
+		}
+		wh, err := c.UpdateWebhook(ctx, args.SubscriptionID, patch)
+		if err != nil {
+			return nil, webhookResult{}, err
+		}
+		return nil, webhookResult{Webhook: *wh}, nil
+	})
+
+	type webhookIDArgs struct {
+		SubscriptionID string `json:"subscription_id" jsonschema:"webhook subscription UUID - the 'id' field, NOT endpointId"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "delete_webhook",
+		Description: "Delete a webhook subscription. Board admin only. Not plan-gated, so a downgraded workspace can still remove one.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args webhookIDArgs) (*mcp.CallToolResult, okResult, error) {
+		if err := c.DeleteWebhook(ctx, args.SubscriptionID); err != nil {
+			return nil, okResult{}, err
+		}
+		return nil, okResult{OK: true}, nil
+	})
+
+	// ── email-to-card (inbound email) ─────────────────────────────────
+	type inboundEmailResult struct {
+		Enabled bool            `json:"enabled"`
+		Address *InboundAddress `json:"address,omitempty"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "get_inbound_email",
+		Description: "Get a board's email-to-card intake address. Board admins on Pro boards only. " +
+			"Returns enabled=false with no address when it has never been set up - that is not an error. " +
+			"Mail to the address becomes a card (subject -> title, body -> description) only when the " +
+			"sender is a workspace member and SPF/DKIM pass; everything else is dropped silently.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args projectIDArgs) (*mcp.CallToolResult, inboundEmailResult, error) {
+		enabled, addr, err := c.GetInboundEmail(ctx, args.ProjectID)
+		if err != nil {
+			return nil, inboundEmailResult{}, err
+		}
+		return nil, inboundEmailResult{Enabled: enabled, Address: addr}, nil
+	})
+
+	type addressResult struct {
+		Address InboundAddress `json:"address"`
+	}
+	type enableInboundEmailArgs struct {
+		ProjectID    string `json:"project_id" jsonschema:"project UUID"`
+		TargetColumn string `json:"target_column,omitempty" jsonschema:"column key to place inbound cards in; omit for the board's first column"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "enable_inbound_email",
+		Description: "Turn on email-to-card for a board and mint its intake address. Board admins on Pro " +
+			"boards only. Returns an error (409 from the API) if the board already has an address - use " +
+			"update_inbound_email or disable_inbound_email first.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args enableInboundEmailArgs) (*mcp.CallToolResult, addressResult, error) {
+		var target *string
+		if args.TargetColumn != "" {
+			target = &args.TargetColumn
+		}
+		addr, err := c.EnableInboundEmail(ctx, args.ProjectID, target)
+		if err != nil {
+			return nil, addressResult{}, err
+		}
+		return nil, addressResult{Address: *addr}, nil
+	})
+
+	type updateInboundEmailArgs struct {
+		ProjectID         string `json:"project_id" jsonschema:"project UUID"`
+		Active            *bool  `json:"active,omitempty" jsonschema:"turn intake on or off without losing the address"`
+		TargetColumn      string `json:"target_column,omitempty" jsonschema:"new column key for inbound cards"`
+		ClearTargetColumn bool   `json:"clear_target_column,omitempty" jsonschema:"set true to reset to the board's first column"`
+		Rotate            bool   `json:"rotate,omitempty" jsonschema:"set true to mint a new token; the old address stops accepting mail immediately"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "update_inbound_email",
+		Description: "Partially update a board's email-to-card configuration. Board admins on Pro boards " +
+			"only - a downgraded (Free) board returns 402 here (disable_inbound_email stays open). " +
+			"Omitted fields are left unchanged.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args updateInboundEmailArgs) (*mcp.CallToolResult, addressResult, error) {
+		patch := map[string]any{}
+		if args.Active != nil {
+			patch["active"] = *args.Active
+		}
+		if args.ClearTargetColumn {
+			patch["targetColumn"] = ""
+		} else if args.TargetColumn != "" {
+			patch["targetColumn"] = args.TargetColumn
+		}
+		if args.Rotate {
+			patch["rotate"] = true
+		}
+		if len(patch) == 0 {
+			return nil, addressResult{}, fmt.Errorf("nothing to update: pass active, target_column, clear_target_column and/or rotate")
+		}
+		addr, err := c.UpdateInboundEmail(ctx, args.ProjectID, patch)
+		if err != nil {
+			return nil, addressResult{}, err
+		}
+		return nil, addressResult{Address: *addr}, nil
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "disable_inbound_email",
+		Description: "Turn off email-to-card for a board. Board admins only. Not plan-gated, so a downgraded workspace can still disable it.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args projectIDArgs) (*mcp.CallToolResult, okResult, error) {
+		if err := c.DisableInboundEmail(ctx, args.ProjectID); err != nil {
+			return nil, okResult{}, err
+		}
+		return nil, okResult{OK: true}, nil
 	})
 
 	// ── members + invitations ─────────────────────────────────────

@@ -67,14 +67,26 @@ The `PORT` env var is set automatically by Cloud Run.
 | `upload_attachment` | Attach a file to a card from inline content |
 | `delete_attachment` | Delete an attachment and its stored bytes |
 | `get_project` | One project with columns, counts and your role |
-| `create_project` | Create a board (starts with To Do / In Progress / Done) |
+| `create_project` | Create a board, optionally from a template (starts with To Do / In Progress / Done otherwise) |
 | `update_project` | Rename, favourite, change visibility or colour scheme |
 | `delete_project` | Delete a board and everything in it |
 | `export_project` | Export a board as JSON or CSV |
+| `list_board_templates` | The fixed catalogue of board templates (kanban, sprint, bug tracker, ...) |
 | `add_column` | Add a column to a board |
 | `update_column` | Rename, recolour, reorder, or set a WIP limit |
 | `delete_column` | Delete an empty column |
-| `archive_column` | Archive every card in a done column |
+| `archive_column` | Archive every card in a done column, returns the archived ids |
+| `archive_card` | Archive one card without deleting it |
+| `restore_card` | Restore an archived card to its original column and position |
+| `list_archived_cards` | A board's archived cards, newest first |
+| `list_webhooks` | A board's outbound webhook subscriptions plus the event catalogue |
+| `create_webhook` | Register an outbound webhook (craaft signed / Slack / Discord) |
+| `update_webhook` | Pause/resume a webhook, or change its URL, format or event filter |
+| `delete_webhook` | Delete a webhook subscription |
+| `get_inbound_email` | A board's email-to-card intake address, if configured |
+| `enable_inbound_email` | Turn on email-to-card and mint the intake address |
+| `update_inbound_email` | Change active state, target column, or rotate the token |
+| `disable_inbound_email` | Turn off email-to-card for a board |
 | `list_members` | Workspace members, roles and board access |
 | `update_member_role` | Change a member's workspace role |
 | `remove_member` | Remove someone from the workspace |
@@ -137,14 +149,59 @@ project first - it reflects the **board's** workspace plan, not the caller's.
 ### Known platform quirk: archive then delete
 
 `archive_column` only archives cards in a column flagged `isDone`, and
-returns `200` with `archived: 0` on any other column rather than erroring -
-check the count.
+returns `200` with `archived: 0` (and an empty id list) on any other column
+rather than erroring - check the count. Its returned ids let you undo the
+sweep with `restore_card` on each one.
 
 `delete_column` is blocked by **live** cards only. Archived cards no longer
 block it - they are reassigned to the board's first column and the delete
 proceeds, so they keep existing and stay archived. (This used to fail: the
 `cards_project_column_fk` constraint still saw the archived rows, so the
 delete returned 409 forever. Fixed on the platform side.)
+
+### Archive and restore
+
+`archive_card` takes a card off its board without deleting it; it stays
+searchable and shows up in `list_archived_cards` until `restore_card` puts it
+back in the exact column and position it was archived from. Archiving an
+already-archived card, or restoring one that isn't archived, is an error.
+`list_archived_cards` uses the same lean board projection as `get_board`
+(description omitted), plus `archivedAt`, capped at 200 rows (newest first) -
+older archived cards stay reachable through `search_cards`.
+
+### Board templates
+
+`list_board_templates` is the same fixed catalogue for every caller, no plan
+gate. Pass a template's `key` as `create_project`'s `template` argument to
+start a board with that column layout. `create_project`'s response never
+includes `columns` at all, template or not - that field is only populated by
+`get_project` / `get_board`. Only the default `kanban` template seeds the
+historical `todo` / `doing` / `done` column keys anyway, every other template
+generates its own, so call `get_project` on the new board before creating
+cards on it.
+
+### Webhooks and email-to-card (board admin, Pro)
+
+Both surfaces are gated the same way: board not visible → not found; visible
+but you're not a board admin → forbidden; Free workspace → a 402 naming
+`"integrations"` as the limit. `delete_webhook` and `disable_inbound_email`
+are **not** plan-gated, so a workspace that downgraded after setting either
+up can still turn them off.
+
+A webhook subscription's `secret` is returned in full on every read (list,
+create, update) - it is never redacted after creation. It signs `craaft`
+format deliveries via the `X-Craaft-Signature` header; `slack` and `discord`
+deliveries are unsigned chat messages, authenticated only by the receiving
+service's secret URL. `update_webhook`'s `subscription_id` argument is the
+subscription `id`, not the workspace-level `endpoint_id` the response also
+carries.
+
+Email-to-card mints one intake address per board
+(`<token>@<inbound-domain>`). Mail becomes a card only when the sender is a
+workspace member and SPF/DKIM pass; everything else is dropped silently, no
+error surfaces to the sender. `update_inbound_email`'s `rotate` flag mints a
+new token and invalidates the old address immediately - there's no grace
+period.
 
 ### Not exposed, and why
 
