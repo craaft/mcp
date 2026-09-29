@@ -47,7 +47,27 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(getServer, nil))
+
+	mcpHandler := mcp.NewStreamableHTTPHandler(getServer, nil)
+	// Normalised the same way the platform compares MCP_RESOURCE_URL, so a
+	// trailing slash or an upper-case host on either side still matches.
+	publicURL := normalizeResource(os.Getenv("MCP_PUBLIC_URL"))
+	if publicURL != "" {
+		resourceOrigin := origin(publicURL)
+		// RFC 9728 section 3.1: the metadata URL for a resource with a path
+		// carries that path as a suffix. The endpoint is always /mcp.
+		metadataURL := resourceOrigin + "/.well-known/oauth-protected-resource/mcp"
+		challenge := fmt.Sprintf("Bearer resource_metadata=%q", metadataURL)
+		metadata := protectedResourceHandler(publicURL, baseURL)
+		mux.HandleFunc("/.well-known/oauth-protected-resource", metadata)
+		mux.HandleFunc("/.well-known/oauth-protected-resource/mcp", metadata)
+		mux.Handle("/mcp", requireBearer(newTokenValidator(baseURL), challenge, mcpHandler))
+		log.Printf("oauth: resource metadata %s", metadataURL)
+	} else {
+		mux.Handle("/mcp", requireBearer(newTokenValidator(baseURL), `Bearer realm="craaft"`, mcpHandler))
+		log.Printf("oauth: disabled (MCP_PUBLIC_URL unset)")
+	}
+
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, `{"status":"ok"}`)
@@ -63,11 +83,36 @@ func main() {
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
 
+// normalizeResource canonicalises MCP_PUBLIC_URL: scheme and host
+// lowercased, trailing slash trimmed. It mirrors the platform's
+// oauthserver.NormalizeResource, which compares MCP_RESOURCE_URL.
+func normalizeResource(raw string) string {
+	raw = strings.TrimSpace(raw)
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return strings.TrimRight(raw, "/")
+	}
+	u.Scheme = strings.ToLower(u.Scheme)
+	u.Host = strings.ToLower(u.Host)
+	return strings.TrimRight(u.String(), "/")
+}
+
+// origin returns the scheme://host portion of a URL, for building the
+// RFC 9728 resource_metadata URL from MCP_PUBLIC_URL (which may include a
+// path such as /mcp).
+func origin(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return strings.TrimRight(rawURL, "/")
+	}
+	return u.Scheme + "://" + u.Host
+}
+
 func extractToken(r *http.Request) string {
 	h := r.Header.Get("Authorization")
 	if strings.HasPrefix(h, "Bearer ") {
 		token := strings.TrimPrefix(h, "Bearer ")
-		if strings.HasPrefix(token, "cra_") {
+		if strings.HasPrefix(token, "cra_") || strings.HasPrefix(token, "cro_") {
 			return token
 		}
 	}

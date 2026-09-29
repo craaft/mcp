@@ -117,6 +117,40 @@ func TestGetCardDetailEscapesPathAndDecodes(t *testing.T) {
 	}
 }
 
+// A cross-board move carries board names in fromName/toName and column
+// titles in fromDetail/toDetail; a board the caller can't see has neither.
+func TestGetCardDetailDecodesBoardMove(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"card":     map[string]any{"id": "c1", "title": "Hello"},
+			"comments": []any{},
+			"events": []any{
+				map[string]any{
+					"id": "e1", "type": "moved_board", "fromValue": "p1:todo", "toValue": "p2:done",
+					"fromName": "Product Launch", "toName": "Website Redesign",
+					"fromDetail": "To Do", "toDetail": "Done", "createdAt": "2026-09-28T10:00:00Z",
+				},
+				map[string]any{"id": "e2", "type": "moved_board", "fromValue": "p9:todo", "toValue": "p2:todo", "createdAt": "2026-09-28T11:00:00Z"},
+			},
+			"checklist":   []any{},
+			"attachments": []any{},
+		})
+	}))
+	t.Cleanup(srv.Close)
+	d, err := NewClient(srv.URL, "cra_testtoken").GetCardDetail(context.Background(), "c1")
+	if err != nil {
+		t.Fatalf("GetCardDetail: %v", err)
+	}
+	e := d.Events[0]
+	if e.Type != "moved_board" || e.FromDetail == nil || *e.FromDetail != "To Do" || e.ToDetail == nil || *e.ToDetail != "Done" {
+		t.Errorf("board move = %+v", e)
+	}
+	if d.Events[1].FromName != nil || d.Events[1].FromDetail != nil {
+		t.Errorf("hidden board leaked names: %+v", d.Events[1])
+	}
+}
+
 // Board-list cards omit description. Re-encoding them must not invent an
 // empty body, or an agent would think every card is blank.
 func TestBoardCardOmitsEmptyDescription(t *testing.T) {

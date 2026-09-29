@@ -2,7 +2,7 @@
 
 Model Context Protocol server for [Craaft](https://craaft.io) - lets AI assistants read and write your Kanban boards.
 
-Deployed as an HTTP service. Each request authenticates via the caller's `Authorization: Bearer cra_*` header - the same personal access tokens used by the Craaft REST API.
+Deployed as an HTTP service. Each request authenticates via the caller's `Authorization: Bearer` header - either a `cra_*` personal access token (same ones used by the Craaft REST API) or a `cro_*` OAuth access token minted by signing in through the connector flow below.
 
 ## Deploy
 
@@ -12,12 +12,24 @@ gcloud run deploy craaft-mcp \
   --source . \
   --region us-central1 \
   --allow-unauthenticated \
-  --set-env-vars CRAAFT_BASE_URL=https://craaft.io
+  --set-env-vars CRAAFT_BASE_URL=https://craaft.io,MCP_PUBLIC_URL=https://ai.craaft.io/mcp
 ```
 
 The `PORT` env var is set automatically by Cloud Run.
 
-## Configure (Claude Desktop)
+## Connect from Claude (OAuth)
+
+With `MCP_PUBLIC_URL` set, the server is an OAuth 2.1 protected resource: no
+token needs to be copied by hand.
+
+1. In Claude Desktop or claude.ai, go to **Settings > Connectors > Add custom
+   connector**.
+2. Paste `https://ai.craaft.io/mcp`.
+3. Sign in to Craaft and approve the connection.
+
+To revoke access later, go to Craaft **Settings > Connected apps**.
+
+## Configure (Claude Desktop, `cra_` token)
 
 1. Sign in to Craaft → **Settings → API keys** → create a token
 2. Add to `~/.config/claude/claude_desktop_config.json`:
@@ -121,6 +133,7 @@ looping the single-card tools.
 |------|---------|
 | `POST /mcp` | MCP Streamable HTTP endpoint |
 | `GET /healthz` | Health check (returns `{"status":"ok"}`) |
+| `GET /.well-known/oauth-protected-resource`, `GET /.well-known/oauth-protected-resource/mcp` | RFC 9728 protected-resource metadata (only served when `MCP_PUBLIC_URL` is set) |
 
 ## Env vars
 
@@ -128,6 +141,7 @@ looping the single-card tools.
 |-----|---------|-------------|
 | `PORT` | `8080` | Listen port (Cloud Run sets this automatically) |
 | `CRAAFT_BASE_URL` | `https://craaft.io` | Upstream Craaft API URL |
+| `MCP_PUBLIC_URL` | unset (OAuth metadata off) | This server's own public `/mcp` URL, e.g. `https://ai.craaft.io/mcp`. When set, serves RFC 9728 protected-resource metadata and 401-challenges missing/invalid tokens to start the OAuth flow. Accepts both `cra_` personal access tokens and `cro_` OAuth access tokens either way. Must equal the platform's `MCP_RESOURCE_URL` (both sides lowercase the scheme and host and trim a trailing slash before comparing). |
 
 ### Attachments
 

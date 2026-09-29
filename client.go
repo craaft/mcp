@@ -255,9 +255,13 @@ type CardEvent struct {
 	ToValue   *string `json:"toValue"`
 	FromName  *string `json:"fromName"`
 	ToName    *string `json:"toName"`
-	ActorID   *string `json:"actorId"`
-	ActorName *string `json:"actorName"`
-	CreatedAt string  `json:"createdAt"`
+	// moved_board only: column titles on the source / target board (FromName
+	// and ToName are then board names). Nil for a board the caller can't see.
+	FromDetail *string `json:"fromDetail,omitempty"`
+	ToDetail   *string `json:"toDetail,omitempty"`
+	ActorID    *string `json:"actorId"`
+	ActorName  *string `json:"actorName"`
+	CreatedAt  string  `json:"createdAt"`
 }
 
 // Attachment is a file on a card. The bytes live in storage; this is only
