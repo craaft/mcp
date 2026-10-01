@@ -126,7 +126,7 @@ func TestLiveIntegrations(t *testing.T) {
 	}
 
 	// email-to-card: get (disabled) -> enable -> update -> disable
-	enabled, addr, err := c.GetInboundEmail(ctx, proj.ID)
+	enabled, _, addr, err := c.GetInboundEmail(ctx, proj.ID)
 	if err != nil {
 		t.Fatalf("GetInboundEmail: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestLiveIntegrations(t *testing.T) {
 	}
 	t.Logf("get_inbound_email     -> enabled=%v (not yet configured)", enabled)
 
-	addr2, err := c.EnableInboundEmail(ctx, proj.ID, nil)
+	addr2, err := c.EnableInboundEmail(ctx, proj.ID, nil, nil)
 	if err != nil {
 		t.Fatalf("EnableInboundEmail: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestLiveIntegrations(t *testing.T) {
 	t.Logf("enable_inbound_email  -> %s (active=%v)", addr2.Email, addr2.Active)
 
 	// A second enable on an already-configured board is a conflict.
-	if _, err := c.EnableInboundEmail(ctx, proj.ID, nil); err == nil {
+	if _, err := c.EnableInboundEmail(ctx, proj.ID, nil, nil); err == nil {
 		t.Error("EnableInboundEmail on an already-enabled board succeeded; expected an error")
 	}
 
@@ -162,7 +162,7 @@ func TestLiveIntegrations(t *testing.T) {
 	if err := c.DisableInboundEmail(ctx, proj.ID); err != nil {
 		t.Fatalf("DisableInboundEmail: %v", err)
 	}
-	enabledAfter, _, err := c.GetInboundEmail(ctx, proj.ID)
+	enabledAfter, _, _, err := c.GetInboundEmail(ctx, proj.ID)
 	if err != nil {
 		t.Fatalf("GetInboundEmail(after disable): %v", err)
 	}

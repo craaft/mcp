@@ -1328,36 +1328,42 @@ type InboundAddress struct {
 	Token        string  `json:"token"`
 	TargetColumn *string `json:"targetColumn"` // column key; nil = board's first column
 	Active       bool    `json:"active"`
+	AIEnrich     bool    `json:"aiEnrich"` // AI cards for email threads are on
 	CreatedAt    string  `json:"createdAt"`
 }
 
 // GetInboundEmail returns a board's inbound intake address, or (false, nil)
-// when email-to-card has never been enabled for it. Board admins on Pro
-// boards only.
-func (c *Client) GetInboundEmail(ctx context.Context, projectID string) (bool, *InboundAddress, error) {
+// when email-to-card has never been enabled for it, plus whether the server
+// can write AI cards. Board admins on Pro boards only.
+func (c *Client) GetInboundEmail(ctx context.Context, projectID string) (enabled bool, aiAvailable bool, addr *InboundAddress, err error) {
 	data, _, err := c.do(ctx, http.MethodGet, "/api/v1/projects/"+url.PathEscape(projectID)+"/inbound-email", nil)
 	if err != nil {
-		return false, nil, err
+		return false, false, nil, err
 	}
 	var resp struct {
-		Enabled bool            `json:"enabled"`
-		Address *InboundAddress `json:"address"`
+		Enabled     bool            `json:"enabled"`
+		Address     *InboundAddress `json:"address"`
+		AIAvailable bool            `json:"aiAvailable"`
 	}
 	if err := json.Unmarshal(data, &resp); err != nil {
-		return false, nil, fmt.Errorf("decode inbound email: %w", err)
+		return false, false, nil, fmt.Errorf("decode inbound email: %w", err)
 	}
-	return resp.Enabled, resp.Address, nil
+	return resp.Enabled, resp.AIAvailable, resp.Address, nil
 }
 
 // EnableInboundEmail mints a board's intake address. targetColumn is a
 // column key; nil defaults to the board's first column. Returns an error
 // (409 from the API) if the board already has an address - use
 // UpdateInboundEmail or DisableInboundEmail first. Board admins on Pro
-// boards only.
-func (c *Client) EnableInboundEmail(ctx context.Context, projectID string, targetColumn *string) (*InboundAddress, error) {
+// boards only. aiEnrich, when non-nil, turns AI cards for email threads on
+// or off; on is a 409 when the server has no AI key.
+func (c *Client) EnableInboundEmail(ctx context.Context, projectID string, targetColumn *string, aiEnrich *bool) (*InboundAddress, error) {
 	body := map[string]any{}
 	if targetColumn != nil {
 		body["targetColumn"] = *targetColumn
+	}
+	if aiEnrich != nil {
+		body["aiEnrich"] = *aiEnrich
 	}
 	data, _, err := c.do(ctx, http.MethodPost, "/api/v1/projects/"+url.PathEscape(projectID)+"/inbound-email", body)
 	if err != nil {

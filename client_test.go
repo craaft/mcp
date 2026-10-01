@@ -429,17 +429,20 @@ func TestListWebhooksDecodesEnvelope(t *testing.T) {
 func TestGetInboundEmailDisabled(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"enabled": false, "address": nil})
+		_ = json.NewEncoder(w).Encode(map[string]any{"enabled": false, "address": nil, "aiAvailable": true})
 	}))
 	t.Cleanup(srv.Close)
 	c := NewClient(srv.URL, "cra_testtoken")
 
-	enabled, addr, err := c.GetInboundEmail(context.Background(), "p1")
+	enabled, aiAvailable, addr, err := c.GetInboundEmail(context.Background(), "p1")
 	if err != nil {
 		t.Fatalf("GetInboundEmail: %v", err)
 	}
 	if enabled || addr != nil {
 		t.Errorf("GetInboundEmail = (%v, %+v), want (false, nil)", enabled, addr)
+	}
+	if !aiAvailable {
+		t.Errorf("aiAvailable = false, want true")
 	}
 }
 
@@ -460,23 +463,34 @@ func TestEnableInboundEmailOmitsNilTargetColumn(t *testing.T) {
 	t.Cleanup(srv.Close)
 	c := NewClient(srv.URL, "cra_testtoken")
 
-	addr, err := c.EnableInboundEmail(context.Background(), "p1", nil)
+	addr, err := c.EnableInboundEmail(context.Background(), "p1", nil, nil)
 	if err != nil {
 		t.Fatalf("EnableInboundEmail: %v", err)
 	}
 	if _, ok := body["targetColumn"]; ok {
 		t.Errorf("nil targetColumn should be omitted from the request body, got %v", body)
 	}
+	if _, ok := body["aiEnrich"]; ok {
+		t.Errorf("nil aiEnrich should be omitted from the request body, got %v", body)
+	}
 	if addr.TargetColumn != nil {
 		t.Errorf("TargetColumn = %v, want nil", addr.TargetColumn)
 	}
 
 	col := "todo"
-	if _, err := c.EnableInboundEmail(context.Background(), "p1", &col); err != nil {
+	if _, err := c.EnableInboundEmail(context.Background(), "p1", &col, nil); err != nil {
 		t.Fatalf("EnableInboundEmail(with column): %v", err)
 	}
 	if body["targetColumn"] != "todo" {
 		t.Errorf("targetColumn = %v, want todo", body["targetColumn"])
+	}
+
+	on := true
+	if _, err := c.EnableInboundEmail(context.Background(), "p1", nil, &on); err != nil {
+		t.Fatalf("EnableInboundEmail(with aiEnrich): %v", err)
+	}
+	if body["aiEnrich"] != true {
+		t.Errorf("aiEnrich = %v, want true", body["aiEnrich"])
 	}
 }
 

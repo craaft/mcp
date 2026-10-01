@@ -1147,8 +1147,9 @@ func registerTools(s *mcp.Server, c *Client) {
 
 	// ── email-to-card (inbound email) ─────────────────────────────────
 	type inboundEmailResult struct {
-		Enabled bool            `json:"enabled"`
-		Address *InboundAddress `json:"address,omitempty"`
+		Enabled     bool            `json:"enabled"`
+		Address     *InboundAddress `json:"address,omitempty"`
+		AIAvailable bool            `json:"ai_available"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "get_inbound_email",
@@ -1157,11 +1158,11 @@ func registerTools(s *mcp.Server, c *Client) {
 			"Mail to the address becomes a card (subject -> title, body -> description) only when the " +
 			"sender is a workspace member and SPF/DKIM pass; everything else is dropped silently.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args projectIDArgs) (*mcp.CallToolResult, inboundEmailResult, error) {
-		enabled, addr, err := c.GetInboundEmail(ctx, args.ProjectID)
+		enabled, aiAvailable, addr, err := c.GetInboundEmail(ctx, args.ProjectID)
 		if err != nil {
 			return nil, inboundEmailResult{}, err
 		}
-		return nil, inboundEmailResult{Enabled: enabled, Address: addr}, nil
+		return nil, inboundEmailResult{Enabled: enabled, Address: addr, AIAvailable: aiAvailable}, nil
 	})
 
 	type addressResult struct {
@@ -1170,6 +1171,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type enableInboundEmailArgs struct {
 		ProjectID    string `json:"project_id" jsonschema:"project UUID"`
 		TargetColumn string `json:"target_column,omitempty" jsonschema:"column key to place inbound cards in; omit for the board's first column"`
+		AIEnrich     *bool  `json:"ai_enrich,omitempty" jsonschema:"turn AI cards for email threads on or off; on returns an error when the server has no AI key"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "enable_inbound_email",
@@ -1181,7 +1183,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		if args.TargetColumn != "" {
 			target = &args.TargetColumn
 		}
-		addr, err := c.EnableInboundEmail(ctx, args.ProjectID, target)
+		addr, err := c.EnableInboundEmail(ctx, args.ProjectID, target, args.AIEnrich)
 		if err != nil {
 			return nil, addressResult{}, err
 		}
@@ -1194,6 +1196,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		TargetColumn      string `json:"target_column,omitempty" jsonschema:"new column key for inbound cards"`
 		ClearTargetColumn bool   `json:"clear_target_column,omitempty" jsonschema:"set true to reset to the board's first column"`
 		Rotate            bool   `json:"rotate,omitempty" jsonschema:"set true to mint a new token; the old address stops accepting mail immediately"`
+		AIEnrich          *bool  `json:"ai_enrich,omitempty" jsonschema:"turn AI cards for email threads on or off; on returns an error when the server has no AI key"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "update_inbound_email",
@@ -1213,8 +1216,11 @@ func registerTools(s *mcp.Server, c *Client) {
 		if args.Rotate {
 			patch["rotate"] = true
 		}
+		if args.AIEnrich != nil {
+			patch["aiEnrich"] = *args.AIEnrich
+		}
 		if len(patch) == 0 {
-			return nil, addressResult{}, fmt.Errorf("nothing to update: pass active, target_column, clear_target_column and/or rotate")
+			return nil, addressResult{}, fmt.Errorf("nothing to update: pass active, target_column, clear_target_column, rotate and/or ai_enrich")
 		}
 		addr, err := c.UpdateInboundEmail(ctx, args.ProjectID, patch)
 		if err != nil {
