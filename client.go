@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ErrNoAvatar means the user exists but has never uploaded an avatar. The
@@ -27,6 +28,8 @@ type Client struct {
 	baseURL string
 	token   string
 	http    *http.Client
+	// sleep waits between rate-limit retries; tests swap it to stay fast.
+	sleep func(ctx context.Context, d time.Duration) error
 }
 
 func NewClient(baseURL, token string) *Client {
@@ -34,6 +37,74 @@ func NewClient(baseURL, token string) *Client {
 		baseURL: strings.TrimRight(baseURL, "/"),
 		token:   token,
 		http:    &http.Client{},
+		sleep:   sleepCtx,
+	}
+}
+
+const (
+	// maxRateLimitRetries is how many times a 429 is retried before the 429
+	// is handed back to the caller.
+	maxRateLimitRetries = 3
+	// maxRetryWait caps a single Retry-After wait.
+	maxRetryWait = 10 * time.Second
+	// defaultRetryWait applies when Retry-After is missing or unparseable.
+	defaultRetryWait = time.Second
+)
+
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
+// retryAfter reads a Retry-After header in seconds, falling back to
+// defaultRetryWait, and clamps it to maxRetryWait.
+func retryAfter(h http.Header) time.Duration {
+	d := defaultRetryWait
+	if secs, err := strconv.Atoi(strings.TrimSpace(h.Get("Retry-After"))); err == nil && secs >= 0 {
+		d = time.Duration(secs) * time.Second
+	}
+	return min(d, maxRetryWait)
+}
+
+// send performs req, retrying on 429 per the platform's per-key rate limit.
+// The limiter runs before any handler, so a 429'd request was never
+// processed and is safe to resend for every method. The body is re-created
+// from req.GetBody (set by NewRequest for bytes/strings readers). After the
+// retries are spent, or when the wait would pass the context deadline, the
+// last 429 response is returned for the caller's normal error handling.
+func (c *Client) send(req *http.Request) (*http.Response, error) {
+	ctx := req.Context()
+	for attempt := 0; ; attempt++ {
+		resp, err := c.http.Do(req)
+		if err != nil || resp.StatusCode != http.StatusTooManyRequests || attempt >= maxRateLimitRetries {
+			return resp, err
+		}
+		wait := retryAfter(resp.Header)
+		if dl, ok := ctx.Deadline(); ok && time.Until(dl) < wait {
+			return resp, nil
+		}
+		if req.Body != nil && req.GetBody == nil {
+			return resp, nil
+		}
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		if err := c.sleep(ctx, wait); err != nil {
+			return nil, fmt.Errorf("waiting out rate limit: %w", err)
+		}
+		if req.GetBody != nil {
+			body, err := req.GetBody()
+			if err != nil {
+				return nil, fmt.Errorf("rewind request body: %w", err)
+			}
+			req = req.Clone(ctx)
+			req.Body = body
+		}
 	}
 }
 
@@ -56,7 +127,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte,
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := c.http.Do(req)
+	resp, err := c.send(req)
 	if err != nil {
 		return nil, 0, fmt.Errorf("execute request: %w", err)
 	}
@@ -744,7 +815,7 @@ func (c *Client) DownloadAttachment(ctx context.Context, attachmentID string) ([
 		return nil, "", fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
-	resp, err := c.http.Do(req)
+	resp, err := c.send(req)
 	if err != nil {
 		return nil, "", fmt.Errorf("execute request: %w", err)
 	}
@@ -858,7 +929,7 @@ func (c *Client) UploadAttachment(ctx context.Context, cardID, filename, content
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", w.FormDataContentType())
 
-	resp, err := c.http.Do(req)
+	resp, err := c.send(req)
 	if err != nil {
 		return nil, fmt.Errorf("execute request: %w", err)
 	}
@@ -1628,7 +1699,7 @@ func (c *Client) GetAvatar(ctx context.Context, userID string) ([]byte, string, 
 		return nil, "", fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
-	resp, err := c.http.Do(req)
+	resp, err := c.send(req)
 	if err != nil {
 		return nil, "", fmt.Errorf("execute request: %w", err)
 	}
