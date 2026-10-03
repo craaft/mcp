@@ -18,6 +18,11 @@ import (
 // app renders an initial-and-colour placeholder in that case.
 var ErrNoAvatar = errors.New("no uploaded avatar for this user")
 
+// ErrSameBoard means a cross-board move named the card's current board. The
+// platform answers 400 with this exact message (cards.ErrSameBoard), and the
+// right call is then a plain column PATCH.
+var ErrSameBoard = errors.New("card is already on that board")
+
 type Client struct {
 	baseURL string
 	token   string
@@ -76,16 +81,22 @@ func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte,
 }
 
 type Project struct {
-	ID              string         `json:"id"`
-	WorkspaceID     string         `json:"workspaceId"`
-	Name            string         `json:"name"`
-	Description     string         `json:"description"`
-	IsFavorite      bool           `json:"isFavorite"`
-	PublicToken     string         `json:"publicToken"`
-	BackgroundImage string         `json:"backgroundImage"`
-	BackgroundColor string         `json:"backgroundColor"`
-	ColorScheme     string         `json:"colorScheme"`
-	TextColor       string         `json:"textColor"`
+	ID              string `json:"id"`
+	WorkspaceID     string `json:"workspaceId"`
+	Name            string `json:"name"`
+	Description     string `json:"description"`
+	IsFavorite      bool   `json:"isFavorite"`
+	PublicToken     string `json:"publicToken"`
+	BackgroundImage string `json:"backgroundImage"`
+	BackgroundColor string `json:"backgroundColor"`
+	ColorScheme     string `json:"colorScheme"`
+	TextColor       string `json:"textColor"`
+	// ShowMilestones / ShowArchived / ShowFiles are the board admin's toggles
+	// for the milestones, archived-cards and files buttons on the board's
+	// top bar.
+	ShowMilestones  bool           `json:"showMilestones"`
+	ShowArchived    bool           `json:"showArchived"`
+	ShowFiles       bool           `json:"showFiles"`
 	MyRole          string         `json:"myRole"`
 	Visibility      string         `json:"visibility"`
 	MyBoardRole     string         `json:"myBoardRole"`
@@ -143,7 +154,6 @@ type Comment struct {
 	CardID     string `json:"cardId"`
 	AuthorID   string `json:"authorId"`
 	AuthorName string `json:"authorName"`
-	AuthorImg  string `json:"authorImg,omitempty"`
 	Body       string `json:"body"`
 	CreatedAt  string `json:"createdAt"`
 	UpdatedAt  string `json:"updatedAt"`
@@ -178,13 +188,13 @@ type SearchResult struct {
 	Archived    bool   `json:"archived"`
 }
 
-// FocusDue is one row of GET /cards/upcoming (server schema UpcomingCard) or
-// the "due" array of GET /cards/focus (server schema FocusDueCard) - the two
-// are the same shape on the wire, so one Go type serves both. Note there is
-// no description, updatedAt or archived field: an earlier version of the
-// openapi spec merged this shape with the unrelated search-result shape
-// (CardSummary) and that merge has since been split apart server-side - see
-// SearchResult, which is a genuinely different response.
+// FocusDue is one row of the "due" array of GET /cards/focus (server schema
+// UpcomingCard). The standalone GET /cards/upcoming route it used to share
+// with is gone; get_focus is the one place due cards come from now. Note
+// there is no description, updatedAt or archived field: an earlier version
+// of the openapi spec merged this shape with the unrelated search-result
+// shape (CardSummary) and that merge has since been split apart server-side
+// - see SearchResult, which is a genuinely different response.
 type FocusDue struct {
 	ID          string `json:"id"`
 	ProjectID   string `json:"projectId"`
@@ -193,9 +203,8 @@ type FocusDue struct {
 	ColumnTitle string `json:"columnTitle"`
 	Title       string `json:"title"`
 	DueDate     string `json:"dueDate"`
-	// AssignedUserID/AssignedUserName/Priority are omitted (not null) on
-	// GET /cards/upcoming, and present-but-null on the /cards/focus "due"
-	// array - a *string zero value (nil) reads identically either way.
+	// AssignedUserID/AssignedUserName/Priority are present-but-null when
+	// unset - a *string zero value (nil) reads identically either way.
 	AssignedUserID   *string `json:"assignedUserId"`
 	AssignedUserName *string `json:"assignedUserName"`
 	Priority         *string `json:"priority"`
@@ -359,17 +368,48 @@ func (c *Client) GetBoard(ctx context.Context, projectID string) (*Project, []Ca
 		return nil, nil, fmt.Errorf("decode project: %w", err)
 	}
 
-	// Fetch cards
-	data, _, err = c.do(ctx, http.MethodGet, "/api/v1/projects/"+url.PathEscape(projectID)+"/cards", nil)
+	cards, err := c.ListCards(ctx, projectID)
 	if err != nil {
 		return &project, nil, err
 	}
+	return &project, cards, nil
+}
+
+// ListCards is the card half of GetBoard: every live card on the board,
+// description omitted.
+func (c *Client) ListCards(ctx context.Context, projectID string) ([]Card, error) {
+	data, _, err := c.do(ctx, http.MethodGet, "/api/v1/projects/"+url.PathEscape(projectID)+"/cards", nil)
+	if err != nil {
+		return nil, err
+	}
 	var cards []Card
 	if err := json.Unmarshal(data, &cards); err != nil {
-		return &project, nil, fmt.Errorf("decode cards: %w", err)
+		return nil, fmt.Errorf("decode cards: %w", err)
 	}
+	return cards, nil
+}
 
-	return &project, cards, nil
+// positionStep mirrors POSITION_STEP in the platform's
+// web/static/js/positions.js, the gap the board leaves between cards.
+const positionStep = 1.0
+
+// positionForEnd mirrors the SPA's positionForEnd: one step after the last
+// card in the column, or one step on an empty column. Keeping new cards on
+// the same scale as drag-and-drop keeps midpoint reorders cheap.
+func positionForEnd(cards []Card, column string) float64 {
+	pos, found := 0.0, false
+	for _, card := range cards {
+		if card.Column != column {
+			continue
+		}
+		if !found || card.Position > pos {
+			pos, found = card.Position, true
+		}
+	}
+	if !found {
+		return positionStep
+	}
+	return pos + positionStep
 }
 
 func (c *Client) SearchCards(ctx context.Context, query string, limit int) ([]SearchResult, error) {
@@ -399,6 +439,11 @@ func (c *Client) SearchCards(ctx context.Context, query string, limit int) ([]Se
 	return resp.Cards, nil
 }
 
+// CreateCard is the single create. The platform reads only title, column,
+// position and description here; everything else (due date, assignee,
+// size, priority, tags) has to follow as a PATCH. The card is assigned to
+// and followed by the caller, and position is used verbatim - pass
+// positionForEnd to append rather than stacking every new card at 0.
 func (c *Client) CreateCard(ctx context.Context, projectID string, card Card) (*Card, error) {
 	body := map[string]any{
 		"title":    card.Title,
@@ -407,21 +452,6 @@ func (c *Client) CreateCard(ctx context.Context, projectID string, card Card) (*
 	}
 	if card.Description != "" {
 		body["description"] = card.Description
-	}
-	if card.DueDate != nil {
-		body["dueDate"] = *card.DueDate
-	}
-	if card.AssignedUserID != nil {
-		body["assignedUserId"] = *card.AssignedUserID
-	}
-	if card.Size != nil {
-		body["size"] = *card.Size
-	}
-	if card.Priority != nil {
-		body["priority"] = *card.Priority
-	}
-	if len(card.Tags) > 0 {
-		body["tags"] = card.Tags
 	}
 
 	data, _, err := c.do(ctx, http.MethodPost, "/api/v1/projects/"+url.PathEscape(projectID)+"/cards", body)
@@ -501,8 +531,11 @@ func (c *Client) MoveCard(ctx context.Context, cardID, targetProjectID, column s
 		"targetProjectId": targetProjectID,
 		"column":          column,
 	}
-	data, _, err := c.do(ctx, http.MethodPost, "/api/v1/cards/"+url.PathEscape(cardID)+"/move", body)
+	data, status, err := c.do(ctx, http.MethodPost, "/api/v1/cards/"+url.PathEscape(cardID)+"/move", body)
 	if err != nil {
+		if status == http.StatusBadRequest && err.Error() == ErrSameBoard.Error() {
+			return nil, ErrSameBoard
+		}
 		return nil, err
 	}
 	var moved Card
@@ -535,18 +568,6 @@ func (c *Client) GetComments(ctx context.Context, cardID string) ([]Comment, err
 		return nil, fmt.Errorf("decode comments: %w", err)
 	}
 	return comments, nil
-}
-
-func (c *Client) GetUpcoming(ctx context.Context) ([]FocusDue, error) {
-	data, _, err := c.do(ctx, http.MethodGet, "/api/v1/cards/upcoming", nil)
-	if err != nil {
-		return nil, err
-	}
-	var cards []FocusDue
-	if err := json.Unmarshal(data, &cards); err != nil {
-		return nil, fmt.Errorf("decode upcoming: %w", err)
-	}
-	return cards, nil
 }
 
 func (c *Client) GetFocus(ctx context.Context) (*FocusResponse, error) {
@@ -595,6 +616,17 @@ func (c *Client) BulkMoveCards(ctx context.Context, ids []string, column, target
 		body["targetProjectId"] = targetProjectID
 	}
 	return c.bulkCards(ctx, http.MethodPost, "/api/v1/cards/bulk/move", body)
+}
+
+// RebalanceColumn rewrites the listed cards onto column with positions 1, 2,
+// 3, ... in the order given, in one transaction. Every id must already be on
+// projectID (a card from another board is a 404); cards in the column that
+// are not listed keep their positions. Capped at 10,000 ids rather than the
+// bulk endpoints' 100, since it is sized for whole columns.
+func (c *Client) RebalanceColumn(ctx context.Context, projectID, column string, ids []string) ([]Card, error) {
+	return c.bulkCards(ctx, http.MethodPost,
+		"/api/v1/projects/"+url.PathEscape(projectID)+"/cards/rebalance",
+		map[string]any{"ids": ids, "column": column})
 }
 
 func (c *Client) bulkCards(ctx context.Context, method, path string, body any) ([]Card, error) {
@@ -727,6 +759,71 @@ func (c *Client) DownloadAttachment(ctx context.Context, attachmentID string) ([
 		return nil, "", fmt.Errorf("HTTP %d downloading attachment", resp.StatusCode)
 	}
 	return data, resp.Header.Get("Content-Type"), nil
+}
+
+// BoardFileCard is the card a board file hangs off. Column is the column
+// key; Archived files stay listed so nothing on the board goes missing.
+type BoardFileCard struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Column   string `json:"column"`
+	Archived bool   `json:"archived"`
+}
+
+// BoardFile is one row of GET /projects/{id}/files: an attachment plus the
+// card it is on.
+type BoardFile struct {
+	ID             string        `json:"id"`
+	Name           string        `json:"name"`
+	Size           int64         `json:"size"`
+	ContentType    string        `json:"contentType"`
+	CreatedAt      string        `json:"createdAt"`
+	UploadedBy     string        `json:"uploadedBy"`
+	UploadedByName string        `json:"uploadedByName"`
+	Card           BoardFileCard `json:"card"`
+}
+
+// BoardFilePage is one page of a board's files. Total counts every match on
+// the board, ignoring before and limit. NextBefore is the cursor for the
+// next (older) page, empty on the last one.
+type BoardFilePage struct {
+	Items      []BoardFile `json:"items"`
+	Total      int         `json:"total"`
+	NextBefore string      `json:"nextBefore,omitempty"`
+}
+
+// ListBoardFiles lists the files on a board's cards (archived cards
+// included), newest first. Every word of query must appear somewhere in the
+// file name, card title, card description, uploader name or content type.
+// limit <= 0 leaves the server default (100, max 200); before is the
+// previous page's NextBefore.
+func (c *Client) ListBoardFiles(ctx context.Context, projectID, query string, limit int, before string) (*BoardFilePage, error) {
+	q := url.Values{}
+	if query != "" {
+		q.Set("q", query)
+	}
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
+	}
+	if before != "" {
+		q.Set("before", before)
+	}
+	path := "/api/v1/projects/" + url.PathEscape(projectID) + "/files"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	data, _, err := c.do(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var page BoardFilePage
+	if err := json.Unmarshal(data, &page); err != nil {
+		return nil, fmt.Errorf("decode board files: %w", err)
+	}
+	if page.Items == nil {
+		page.Items = []BoardFile{}
+	}
+	return &page, nil
 }
 
 // UploadAttachment posts a single multipart "file" part. This server runs
@@ -1397,6 +1494,126 @@ func (c *Client) UpdateInboundEmail(ctx context.Context, projectID string, patch
 func (c *Client) DisableInboundEmail(ctx context.Context, projectID string) error {
 	_, _, err := c.do(ctx, http.MethodDelete, "/api/v1/projects/"+url.PathEscape(projectID)+"/inbound-email", nil)
 	return err
+}
+
+// ── Notifications ────────────────────────────────────────────────
+
+// NotificationCard is the card a notification is about.
+type NotificationCard struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	ProjectID   string `json:"projectId"`
+	ProjectName string `json:"projectName"`
+	Archived    bool   `json:"archived"`
+}
+
+type NotificationActor struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// Notification is one inbox row. Kind is mention, assigned, comment, moved
+// or updated - or "group" when unread comment/moved/updated notifications
+// on one card were merged, in which case IDs, Kinds and Details carry every
+// member. Pass IDs to MarkNotificationsRead.
+type Notification struct {
+	IDs       []string            `json:"ids"`
+	Kind      string              `json:"kind"`
+	Kinds     []string            `json:"kinds"`
+	Details   []string            `json:"details"`
+	Card      NotificationCard    `json:"card"`
+	Actors    []NotificationActor `json:"actors"`
+	Excerpt   string              `json:"excerpt,omitempty"`
+	Count     int                 `json:"count"`
+	CreatedAt string              `json:"createdAt"`
+	Seen      bool                `json:"seen"`
+	Read      bool                `json:"read"`
+}
+
+// ListNotifications returns the caller's inbox, newest first. limit <= 0
+// leaves the server default (30, max 50); before is the previous page's
+// nextBefore cursor, which is returned empty when there is nothing older.
+func (c *Client) ListNotifications(ctx context.Context, unreadOnly bool, limit int, before string) ([]Notification, string, error) {
+	q := url.Values{}
+	if unreadOnly {
+		q.Set("unread", "1")
+	}
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
+	}
+	if before != "" {
+		q.Set("before", before)
+	}
+	path := "/api/v1/me/notifications"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	data, _, err := c.do(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	var resp struct {
+		Items      []Notification `json:"items"`
+		NextBefore *string        `json:"nextBefore"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, "", fmt.Errorf("decode notifications: %w", err)
+	}
+	if resp.Items == nil {
+		resp.Items = []Notification{}
+	}
+	next := ""
+	if resp.NextBefore != nil {
+		next = *resp.NextBefore
+	}
+	return resp.Items, next, nil
+}
+
+// UnseenNotifications is the badge count: notifications not yet seen.
+func (c *Client) UnseenNotifications(ctx context.Context) (int, error) {
+	data, _, err := c.do(ctx, http.MethodGet, "/api/v1/me/notifications/count", nil)
+	if err != nil {
+		return 0, err
+	}
+	return decodeUnseen(data)
+}
+
+// MarkNotificationsRead marks the given ids, every notification on cardID,
+// or both, as read (and seen). Unknown or foreign ids are ignored; at most
+// 200 ids per call. Returns the remaining unseen count.
+func (c *Client) MarkNotificationsRead(ctx context.Context, ids []string, cardID string) (int, error) {
+	body := map[string]any{}
+	if len(ids) > 0 {
+		body["ids"] = ids
+	}
+	if cardID != "" {
+		body["cardId"] = cardID
+	}
+	data, _, err := c.do(ctx, http.MethodPost, "/api/v1/me/notifications/read", body)
+	if err != nil {
+		return 0, err
+	}
+	return decodeUnseen(data)
+}
+
+// MarkAllNotificationsRead marks every notification read. The route takes
+// no body. Returns the remaining unseen count (0).
+func (c *Client) MarkAllNotificationsRead(ctx context.Context) (int, error) {
+	data, _, err := c.do(ctx, http.MethodPost, "/api/v1/me/notifications/read-all", nil)
+	if err != nil {
+		return 0, err
+	}
+	return decodeUnseen(data)
+}
+
+func decodeUnseen(data []byte) (int, error) {
+	var resp struct {
+		Unseen int `json:"unseen"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return 0, fmt.Errorf("decode notification count: %w", err)
+	}
+	return resp.Unseen, nil
 }
 
 // ── Avatar ────────────────────────────────────────────────────────

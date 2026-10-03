@@ -56,31 +56,34 @@ To revoke access later, go to Craaft **Settings > Connected apps**.
 | `get_card` | Get a single card by ID, including description |
 | `get_card_detail` | Card plus comments, events, checklist and attachments in one call |
 | `search_cards` | Cross-project card search (description is a ≤180-char snippet) |
-| `create_card` | Create a card with title, column, and optional metadata |
-| `update_card` | Update a card's title, description, column, priority, assignee, etc. |
+| `create_card` | Create a card at the bottom of a column, with optional metadata (assigned to you unless you name someone) |
+| `update_card` | Update a card's title, description, column, position, priority, assignee, tags, etc. |
 | `move_card` | Move a card to another column or board |
 | `delete_card` | Permanently delete a card |
 | `add_comment` | Add a comment to a card (supports @mentions) |
 | `get_comments` | List comments on a card |
-| `get_upcoming` | List all due-dated cards across projects |
 | `get_focus` | Get focus overview: due cards, attention cards, hygiene counters |
+| `list_notifications` | Your notification inbox, newest first, plus the unseen count |
+| `mark_notifications_read` | Mark notifications read by id, by card, or all of them |
 | `get_me` | Get the authenticated user's profile |
 | `bulk_create_cards` | Create up to 100 cards in one transaction |
 | `bulk_update_cards` | Apply up to 100 partial card updates in one transaction |
 | `bulk_move_cards` | Sweep up to 100 cards into a column, optionally on another board |
+| `rebalance_cards` | Reorder a whole column in one transaction (positions 1, 2, 3, ...) |
 | `get_checklist` | List a card's checklist items |
 | `add_checklist_item` | Append an item to a card's checklist |
 | `update_checklist_item` | Tick, untick or retitle a checklist item |
 | `delete_checklist_item` | Delete a checklist item |
-| `get_card_activity` | A card's activity log: moves, priority and assignee changes |
+| `get_card_activity` | A card's activity log: column and board moves, priority and assignee changes |
 | `get_hygiene` | The cards behind a `get_focus` hygiene counter (`ghosts`, `stuck`, `mine_no_date`) |
 | `list_attachments` | List the files attached to a card |
+| `list_board_files` | Search every file on a board's cards, with the card each is on |
 | `download_attachment` | Fetch an attachment's bytes (text inline, binary base64) |
 | `upload_attachment` | Attach a file to a card from inline content |
 | `delete_attachment` | Delete an attachment and its stored bytes |
 | `get_project` | One project with columns, counts and your role |
 | `create_project` | Create a board, optionally from a template (starts with To Do / In Progress / Done otherwise) |
-| `update_project` | Rename, favourite, change visibility or colour scheme |
+| `update_project` | Rename, favourite, change visibility, colour scheme, background, text colour or top-bar buttons |
 | `delete_project` | Delete a board and everything in it |
 | `export_project` | Export a board as JSON or CSV |
 | `list_board_templates` | The fixed catalogue of board templates (kanban, sprint, bug tracker, ...) |
@@ -106,7 +109,7 @@ To revoke access later, go to Craaft **Settings > Connected apps**.
 | `invite_member` | Invite by email, optionally with board grants |
 | `revoke_invitation` | Revoke a pending invitation |
 | `list_board_members` | Who can see a board, and whether access is explicit or implied |
-| `grant_board_access` | Give a member access to a specific board |
+| `grant_board_access` | Give a member access to a specific board, or change their board role |
 | `revoke_board_access` | Remove an explicit board grant |
 | `update_comment` | Edit a comment (author only) |
 | `delete_comment` | Delete a comment (author, or workspace owner/admin) |

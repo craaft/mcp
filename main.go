@@ -234,8 +234,8 @@ func registerTools(s *mcp.Server, c *Client) {
 		Column       string   `json:"column" jsonschema:"column key (e.g. 'todo', 'doing', 'done')"`
 		Description  string   `json:"description,omitempty" jsonschema:"optional markdown description"`
 		DueDate      string   `json:"due_date,omitempty" jsonschema:"optional ISO 8601 date (e.g. '2026-01-15T00:00:00Z')"`
-		AssignedUser string   `json:"assigned_user_id,omitempty" jsonschema:"optional user UUID to assign"`
-		Size         int      `json:"size,omitempty" jsonschema:"optional size estimate (integer)"`
+		AssignedUser string   `json:"assigned_user_id,omitempty" jsonschema:"optional user UUID to assign; omit to leave the card assigned to you"`
+		Size         *int     `json:"size,omitempty" jsonschema:"optional size estimate (non-negative integer)"`
 		Priority     string   `json:"priority,omitempty" jsonschema:"optional priority: low, medium, high, urgent"`
 		Tags         []string `json:"tags,omitempty" jsonschema:"optional list of tag strings"`
 	}
@@ -243,59 +243,83 @@ func registerTools(s *mcp.Server, c *Client) {
 		Card Card `json:"card"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "create_card",
-		Description: "Create a new card on a Kanban board. The card appears in the specified column.",
+		Name: "create_card",
+		Description: "Create a new card at the bottom of a column. The card is assigned to you and you " +
+			"follow it, unless assigned_user_id names someone else. Due date, assignee, size, priority " +
+			"and tags are applied by a follow-up update, so a bad value there (say an unknown priority) " +
+			"returns an error naming the card that was already created - fix it with update_card rather " +
+			"than creating it again. Mentions in the title or description notify the people named. Use " +
+			"bulk_create_cards for more than one card.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args createCardArgs) (*mcp.CallToolResult, createCardResult, error) {
+		// The single create takes a verbatim position and nothing else, so
+		// read the column first and append, the same way the board does.
+		cards, err := c.ListCards(ctx, args.ProjectID)
+		if err != nil {
+			return nil, createCardResult{}, err
+		}
 		card := Card{
-			Title:  args.Title,
-			Column: args.Column,
-			Tags:   args.Tags,
+			Title:       args.Title,
+			Column:      args.Column,
+			Description: args.Description,
+			Position:    positionForEnd(cards, args.Column),
 		}
-		if args.Description != "" {
-			card.Description = args.Description
-		}
-		if args.DueDate != "" {
-			card.DueDate = &args.DueDate
-		}
-		if args.AssignedUser != "" {
-			card.AssignedUserID = &args.AssignedUser
-		}
-		if args.Size > 0 {
-			card.Size = &args.Size
-		}
-		if args.Priority != "" {
-			card.Priority = &args.Priority
-		}
-
 		created, err := c.CreateCard(ctx, args.ProjectID, card)
 		if err != nil {
 			return nil, createCardResult{}, err
 		}
-		return nil, createCardResult{Card: *created}, nil
+
+		// Everything else the create endpoint ignores goes on in one PATCH.
+		patch := map[string]any{}
+		if args.DueDate != "" {
+			patch["dueDate"] = args.DueDate
+		}
+		if args.AssignedUser != "" {
+			patch["assignedUserId"] = args.AssignedUser
+		}
+		if args.Size != nil {
+			patch["size"] = *args.Size
+		}
+		if args.Priority != "" {
+			patch["priority"] = args.Priority
+		}
+		if len(args.Tags) > 0 {
+			patch["tags"] = args.Tags
+		}
+		if len(patch) == 0 {
+			return nil, createCardResult{Card: *created}, nil
+		}
+		updated, err := c.UpdateCard(ctx, created.ID, patch)
+		if err != nil {
+			return nil, createCardResult{}, fmt.Errorf("card %s was created, but setting its metadata failed: %w", created.ID, err)
+		}
+		return nil, createCardResult{Card: *updated}, nil
 	})
 
 	// ── update_card ───────────────────────────────────────────────
 	type updateCardArgs struct {
-		CardID        string `json:"card_id" jsonschema:"card UUID"`
-		Title         string `json:"title,omitempty" jsonschema:"new title (omit to leave unchanged)"`
-		Description   string `json:"description,omitempty" jsonschema:"new description (omit to leave unchanged)"`
-		Column        string `json:"column,omitempty" jsonschema:"move to this column key (omit to leave unchanged)"`
-		DueDate       string `json:"due_date,omitempty" jsonschema:"set due date (omit to leave unchanged)"`
-		ClearDueDate  bool   `json:"clear_due_date,omitempty" jsonschema:"set true to clear the due date"`
-		AssignedUser  string `json:"assigned_user_id,omitempty" jsonschema:"assign to this user UUID (omit to leave unchanged)"`
-		ClearAssignee bool   `json:"clear_assignee,omitempty" jsonschema:"set true to unassign"`
-		Size          int    `json:"size,omitempty" jsonschema:"set size estimate (omit to leave unchanged)"`
-		ClearSize     bool   `json:"clear_size,omitempty" jsonschema:"set true to clear size"`
-		Priority      string `json:"priority,omitempty" jsonschema:"set priority: low, medium, high, urgent (omit to leave unchanged)"`
-		ClearPriority bool   `json:"clear_priority,omitempty" jsonschema:"set true to clear priority"`
-		Tags          string `json:"tags,omitempty" jsonschema:"comma-separated tags to set (omit to leave unchanged)"`
+		CardID        string   `json:"card_id" jsonschema:"card UUID"`
+		Title         string   `json:"title,omitempty" jsonschema:"new title (omit to leave unchanged)"`
+		Description   string   `json:"description,omitempty" jsonschema:"new description (omit to leave unchanged)"`
+		ClearDesc     bool     `json:"clear_description,omitempty" jsonschema:"set true to empty the description"`
+		Column        string   `json:"column,omitempty" jsonschema:"move to this column key (omit to leave unchanged)"`
+		Position      *float64 `json:"position,omitempty" jsonschema:"new position within the column (omit to leave unchanged). Cards sort by position ascending; use a midpoint to slot between two cards"`
+		DueDate       string   `json:"due_date,omitempty" jsonschema:"set due date (omit to leave unchanged)"`
+		ClearDueDate  bool     `json:"clear_due_date,omitempty" jsonschema:"set true to clear the due date"`
+		AssignedUser  string   `json:"assigned_user_id,omitempty" jsonschema:"assign to this user UUID (omit to leave unchanged)"`
+		ClearAssignee bool     `json:"clear_assignee,omitempty" jsonschema:"set true to unassign"`
+		Size          *int     `json:"size,omitempty" jsonschema:"set size estimate, a non-negative integer; 0 is a real size, not a clear (omit to leave unchanged)"`
+		ClearSize     bool     `json:"clear_size,omitempty" jsonschema:"set true to clear size"`
+		Priority      string   `json:"priority,omitempty" jsonschema:"set priority: low, medium, high, urgent (omit to leave unchanged)"`
+		ClearPriority bool     `json:"clear_priority,omitempty" jsonschema:"set true to clear priority"`
+		Tags          string   `json:"tags,omitempty" jsonschema:"comma-separated tags to set, replacing the current ones (omit to leave unchanged)"`
+		ClearTags     bool     `json:"clear_tags,omitempty" jsonschema:"set true to remove every tag"`
 	}
 	type updateCardResult struct {
 		Card Card `json:"card"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "update_card",
-		Description: "Update a card's title, description, column, metadata, or move it to another column. Omit a field to leave it unchanged. Set a clear_* flag to null out a nullable field.",
+		Description: "Update a card's title, description, column, position or metadata. Omit a field to leave it unchanged. Set a clear_* flag to empty a field (description, due date, assignee, size, priority, tags).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args updateCardArgs) (*mcp.CallToolResult, updateCardResult, error) {
 		patch := map[string]any{}
 		if args.Title != "" {
@@ -303,9 +327,14 @@ func registerTools(s *mcp.Server, c *Client) {
 		}
 		if args.Description != "" {
 			patch["description"] = args.Description
+		} else if args.ClearDesc {
+			patch["description"] = ""
 		}
 		if args.Column != "" {
 			patch["column"] = args.Column
+		}
+		if args.Position != nil {
+			patch["position"] = *args.Position
 		}
 		if args.DueDate != "" {
 			patch["dueDate"] = args.DueDate
@@ -317,8 +346,8 @@ func registerTools(s *mcp.Server, c *Client) {
 		} else if args.ClearAssignee {
 			patch["assignedUserId"] = nil
 		}
-		if args.Size > 0 {
-			patch["size"] = args.Size
+		if args.Size != nil {
+			patch["size"] = *args.Size
 		} else if args.ClearSize {
 			patch["size"] = nil
 		}
@@ -328,7 +357,15 @@ func registerTools(s *mcp.Server, c *Client) {
 			patch["priority"] = nil
 		}
 		if args.Tags != "" {
-			patch["tags"] = strings.Split(args.Tags, ",")
+			tags := []string{}
+			for _, t := range strings.Split(args.Tags, ",") {
+				if t = strings.TrimSpace(t); t != "" {
+					tags = append(tags, t)
+				}
+			}
+			patch["tags"] = tags
+		} else if args.ClearTags {
+			patch["tags"] = nil
 		}
 
 		if len(patch) == 0 {
@@ -345,15 +382,17 @@ func registerTools(s *mcp.Server, c *Client) {
 	// ── move_card ─────────────────────────────────────────────────
 	type moveCardArgs struct {
 		CardID          string `json:"card_id" jsonschema:"card UUID"`
-		TargetProjectID string `json:"target_project_id,omitempty" jsonschema:"project UUID to move to (omit to move within the same board)"`
+		TargetProjectID string `json:"target_project_id,omitempty" jsonschema:"project UUID to move to; omit (or pass the card's own board) to move within the same board"`
 		Column          string `json:"column" jsonschema:"destination column key"`
 	}
 	type moveCardResult struct {
 		Card Card `json:"card"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "move_card",
-		Description: "Move a card to a column. Optionally move it to a different board (must be in the same workspace).",
+		Name: "move_card",
+		Description: "Move a card to a column. Optionally move it to a different board (must be in the same " +
+			"workspace); it lands at the bottom of the target column. Naming the card's current board " +
+			"is treated as a same-board column move.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args moveCardArgs) (*mcp.CallToolResult, moveCardResult, error) {
 		target := args.TargetProjectID
 		if target == "" {
@@ -364,6 +403,11 @@ func registerTools(s *mcp.Server, c *Client) {
 			return nil, moveCardResult{Card: *updated}, nil
 		}
 		moved, err := c.MoveCard(ctx, args.CardID, target, args.Column)
+		if errors.Is(err, ErrSameBoard) {
+			// The cross-board route refuses the card's own board; a column
+			// PATCH is the same-board move.
+			moved, err = c.UpdateCard(ctx, args.CardID, map[string]any{"column": args.Column})
+		}
 		if err != nil {
 			return nil, moveCardResult{}, err
 		}
@@ -423,21 +467,6 @@ func registerTools(s *mcp.Server, c *Client) {
 		return nil, getCommentsResult{Comments: comments}, nil
 	})
 
-	// ── get_upcoming ──────────────────────────────────────────────
-	type getUpcomingResult struct {
-		Cards []FocusDue `json:"cards"`
-	}
-	mcp.AddTool(s, &mcp.Tool{
-		Name:        "get_upcoming",
-		Description: "List all due-dated cards across every accessible project, ordered by due date. Useful for seeing what's coming up.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, getUpcomingResult, error) {
-		cards, err := c.GetUpcoming(ctx)
-		if err != nil {
-			return nil, getUpcomingResult{}, err
-		}
-		return nil, getUpcomingResult{Cards: cards}, nil
-	})
-
 	// ── get_focus ─────────────────────────────────────────────────
 	type getFocusResult struct {
 		Focus FocusResponse `json:"focus"`
@@ -451,6 +480,73 @@ func registerTools(s *mcp.Server, c *Client) {
 			return nil, getFocusResult{}, err
 		}
 		return nil, getFocusResult{Focus: *focus}, nil
+	})
+
+	// ── list_notifications ────────────────────────────────────────
+	type listNotificationsArgs struct {
+		UnreadOnly bool   `json:"unread_only,omitempty" jsonschema:"set true to list only unread notifications"`
+		Limit      int    `json:"limit,omitempty" jsonschema:"max rows to fetch (default 30, max 50)"`
+		Before     string `json:"before,omitempty" jsonschema:"page cursor: the nextBefore value from the previous call"`
+	}
+	type listNotificationsResult struct {
+		Notifications []Notification `json:"notifications"`
+		NextBefore    string         `json:"nextBefore,omitempty"`
+		Unseen        int            `json:"unseen"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "list_notifications",
+		Description: "List your in-app notifications, newest first: mentions, assignments, and comments, " +
+			"moves and updates on cards you follow. Unread comment/moved/updated rows on the same card " +
+			"are merged into one row of kind 'group' whose ids, kinds and details list every member. " +
+			"Also returns the unseen badge count. Pass nextBefore back as before for the next page; " +
+			"it is empty when there is nothing older. Mark rows read with mark_notifications_read.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args listNotificationsArgs) (*mcp.CallToolResult, listNotificationsResult, error) {
+		items, next, err := c.ListNotifications(ctx, args.UnreadOnly, args.Limit, args.Before)
+		if err != nil {
+			return nil, listNotificationsResult{}, err
+		}
+		unseen, err := c.UnseenNotifications(ctx)
+		if err != nil {
+			return nil, listNotificationsResult{}, err
+		}
+		return nil, listNotificationsResult{Notifications: items, NextBefore: next, Unseen: unseen}, nil
+	})
+
+	// ── mark_notifications_read ───────────────────────────────────
+	type markReadArgs struct {
+		IDs    []string `json:"ids,omitempty" jsonschema:"notification UUIDs to mark read, from a row's ids (max 200)"`
+		CardID string   `json:"card_id,omitempty" jsonschema:"mark every notification about this card read"`
+		All    bool     `json:"all,omitempty" jsonschema:"set true to mark every notification read; leave ids and card_id empty"`
+	}
+	type markReadResult struct {
+		Unseen int `json:"unseen"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "mark_notifications_read",
+		Description: "Mark notifications read: specific ids, everything about one card, or all of them " +
+			"(all=true). Ids that aren't yours or don't exist are ignored. Returns the unseen count left.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args markReadArgs) (*mcp.CallToolResult, markReadResult, error) {
+		if args.All {
+			if len(args.IDs) > 0 || args.CardID != "" {
+				return nil, markReadResult{}, fmt.Errorf("pass all, or ids and/or card_id, not both")
+			}
+			n, err := c.MarkAllNotificationsRead(ctx)
+			if err != nil {
+				return nil, markReadResult{}, err
+			}
+			return nil, markReadResult{Unseen: n}, nil
+		}
+		if len(args.IDs) == 0 && args.CardID == "" {
+			return nil, markReadResult{}, fmt.Errorf("nothing to mark: pass ids, card_id or all")
+		}
+		if len(args.IDs) > 200 {
+			return nil, markReadResult{}, fmt.Errorf("at most 200 ids per call, got %d", len(args.IDs))
+		}
+		n, err := c.MarkNotificationsRead(ctx, args.IDs, args.CardID)
+		if err != nil {
+			return nil, markReadResult{}, err
+		}
+		return nil, markReadResult{Unseen: n}, nil
 	})
 
 	// ── bulk_create_cards ─────────────────────────────────────────
@@ -477,7 +573,7 @@ func registerTools(s *mcp.Server, c *Client) {
 
 	// ── bulk_update_cards ─────────────────────────────────────────
 	type bulkUpdateArgs struct {
-		Cards []map[string]any `json:"cards" jsonschema:"up to 100 patch objects. Each needs an id plus the fields to change; omit a field to leave it alone, send null to clear a nullable one (dueDate, assignedUserId, size, priority)"`
+		Cards []map[string]any `json:"cards" jsonschema:"up to 100 patch objects. Each needs an id plus the fields to change; omit a field to leave it alone, send null to clear a nullable one (dueDate, assignedUserId, size, priority, tags)"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "bulk_update_cards",
@@ -505,6 +601,31 @@ func registerTools(s *mcp.Server, c *Client) {
 			"moves to that board and appends to the end of the target column.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args bulkMoveArgs) (*mcp.CallToolResult, bulkCardsResult, error) {
 		cards, err := c.BulkMoveCards(ctx, args.IDs, args.Column, args.TargetProjectID)
+		if err != nil {
+			return nil, bulkCardsResult{}, err
+		}
+		return nil, bulkCardsResult{Cards: cards}, nil
+	})
+
+	// ── rebalance_cards ───────────────────────────────────────────
+	type rebalanceArgs struct {
+		ProjectID string   `json:"project_id" jsonschema:"project UUID the cards are on"`
+		Column    string   `json:"column" jsonschema:"column key to put the cards in"`
+		IDs       []string `json:"ids" jsonschema:"card UUIDs in the order you want them, top first (up to 10000)"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "rebalance_cards",
+		Description: "Reorder a column in one transaction: the listed cards are put in the given column " +
+			"with positions 1, 2, 3, ... in the order given. Use it to sort a whole column (by priority, " +
+			"due date, ...) or when repeated midpoint moves have left two cards on the same position so " +
+			"update_card's position can't separate them. Unlike bulk_update_cards it is not capped at " +
+			"100. Every id must already be on this board; list the whole column, since cards you leave " +
+			"out keep their old positions and can end up interleaved.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args rebalanceArgs) (*mcp.CallToolResult, bulkCardsResult, error) {
+		if len(args.IDs) == 0 || args.Column == "" {
+			return nil, bulkCardsResult{}, fmt.Errorf("ids and column are required")
+		}
+		cards, err := c.RebalanceColumn(ctx, args.ProjectID, args.Column, args.IDs)
 		if err != nil {
 			return nil, bulkCardsResult{}, err
 		}
@@ -598,8 +719,10 @@ func registerTools(s *mcp.Server, c *Client) {
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "get_card_activity",
-		Description: "Get a card's activity log (column moves, priority changes, assignee changes), " +
-			"oldest first. Useful for answering when something moved or who changed it.",
+		Description: "Get a card's activity log (column moves, board moves, priority changes, assignee " +
+			"changes), oldest first. Useful for answering when something moved or who changed it. On a " +
+			"moved_board event fromValue/toValue are '<projectId>:<columnKey>', fromName/toName are the " +
+			"board names and fromDetail/toDetail the column titles (left out for a board you can't see).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args cardIDArgs) (*mcp.CallToolResult, activityResult, error) {
 		events, err := c.GetCardEvents(ctx, args.CardID)
 		if err != nil {
@@ -618,7 +741,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "get_hygiene",
 		Description: "List the actual cards behind one of get_focus's hygiene counters. get_focus tells " +
-			"you how many need attention; this tells you which ones.",
+			"you how many need attention; this tells you which ones, capped at 100.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args hygieneArgs) (*mcp.CallToolResult, hygieneResult, error) {
 		switch args.Category {
 		case "ghosts", "stuck", "mine_no_date":
@@ -647,9 +770,31 @@ func registerTools(s *mcp.Server, c *Client) {
 		return nil, attachmentsResult{Attachments: atts}, nil
 	})
 
+	// ── list_board_files ──────────────────────────────────────────
+	type boardFilesArgs struct {
+		ProjectID string `json:"project_id" jsonschema:"project UUID"`
+		Query     string `json:"query,omitempty" jsonschema:"optional search words; every word must match the file name, card title, card description, uploader name or content type"`
+		Limit     int    `json:"limit,omitempty" jsonschema:"max files to return (default 100, max 200)"`
+		Before    string `json:"before,omitempty" jsonschema:"page cursor: the nextBefore value from the previous call"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "list_board_files",
+		Description: "List every file attached to cards on a board, newest first, with the card each one " +
+			"is on (archived cards included). query narrows it: each word must appear, case-insensitively, " +
+			"in the file name, the card's title or description, the uploader's name or the content type. " +
+			"total counts every match; pass nextBefore back as before for the next page. Fetch a file's " +
+			"contents with download_attachment using its id.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args boardFilesArgs) (*mcp.CallToolResult, BoardFilePage, error) {
+		page, err := c.ListBoardFiles(ctx, args.ProjectID, args.Query, args.Limit, args.Before)
+		if err != nil {
+			return nil, BoardFilePage{}, err
+		}
+		return nil, *page, nil
+	})
+
 	// ── download_attachment ───────────────────────────────────────
 	type downloadArgs struct {
-		AttachmentID string `json:"attachment_id" jsonschema:"attachment UUID (from list_attachments)"`
+		AttachmentID string `json:"attachment_id" jsonschema:"attachment UUID (from list_attachments or list_board_files)"`
 		MaxBytes     int    `json:"max_bytes,omitempty" jsonschema:"refuse to inline anything larger than this (default 262144, hard ceiling 5242880)"`
 	}
 	type downloadResult struct {
@@ -790,16 +935,27 @@ func registerTools(s *mcp.Server, c *Client) {
 	})
 
 	type updateProjectArgs struct {
-		ProjectID   string `json:"project_id" jsonschema:"project UUID"`
-		Name        string `json:"name,omitempty" jsonschema:"new name"`
-		Description string `json:"description,omitempty" jsonschema:"new description"`
-		IsFavorite  *bool  `json:"is_favorite,omitempty" jsonschema:"pin or unpin the board"`
-		Visibility  string `json:"visibility,omitempty" jsonschema:"'private' (explicit grants only) or 'workspace' (every workspace member is a contributor)"`
-		ColorScheme string `json:"color_scheme,omitempty" jsonschema:"board colour scheme, e.g. default, midnight, ocean, forest, sunset, graphite"`
+		ProjectID        string `json:"project_id" jsonschema:"project UUID"`
+		Name             string `json:"name,omitempty" jsonschema:"new name"`
+		Description      string `json:"description,omitempty" jsonschema:"new description"`
+		ClearDescription bool   `json:"clear_description,omitempty" jsonschema:"set true to empty the description"`
+		IsFavorite       *bool  `json:"is_favorite,omitempty" jsonschema:"pin or unpin the board"`
+		Visibility       string `json:"visibility,omitempty" jsonschema:"'private' (explicit grants only) or 'workspace' (every workspace member is a contributor)"`
+		ColorScheme      string `json:"color_scheme,omitempty" jsonschema:"board colour scheme: default, midnight, ocean, forest, sunset or graphite"`
+		BackgroundColor  string `json:"background_color,omitempty" jsonschema:"solid board background as a hex colour like #aabbcc (or #aabbccdd); replaces any background image"`
+		BackgroundImage  string `json:"background_image,omitempty" jsonschema:"preset background image URL, one of https://backgrounds.craaft.io/craaft-1.webp through https://backgrounds.craaft.io/craaft-8.webp; replaces any background colour"`
+		ClearBackground  bool   `json:"clear_background,omitempty" jsonschema:"set true to remove both the background image and the background colour"`
+		TextColor        string `json:"text_color,omitempty" jsonschema:"board text colour for contrast over the background: dark or light"`
+		ShowMilestones   *bool  `json:"show_milestones,omitempty" jsonschema:"show or hide the milestones button on the board's top bar"`
+		ShowArchived     *bool  `json:"show_archived,omitempty" jsonschema:"show or hide the archived-cards button on the board's top bar"`
+		ShowFiles        *bool  `json:"show_files,omitempty" jsonschema:"show or hide the files button on the board's top bar"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "update_project",
-		Description: "Partially update a board. Omitted fields are left unchanged.",
+		Name: "update_project",
+		Description: "Partially update a board: name, description, favourite, visibility, colour scheme, " +
+			"background, text colour and which top-bar buttons (milestones, archived cards, files) it " +
+			"shows. Board admins only - anyone else gets 404. Omitted fields are left unchanged. A board " +
+			"has a background image or a background colour, never both: setting one clears the other.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args updateProjectArgs) (*mcp.CallToolResult, projectResult, error) {
 		patch := map[string]any{}
 		if args.Name != "" {
@@ -807,6 +963,8 @@ func registerTools(s *mcp.Server, c *Client) {
 		}
 		if args.Description != "" {
 			patch["description"] = args.Description
+		} else if args.ClearDescription {
+			patch["description"] = ""
 		}
 		if args.IsFavorite != nil {
 			patch["isFavorite"] = *args.IsFavorite
@@ -816,6 +974,31 @@ func registerTools(s *mcp.Server, c *Client) {
 		}
 		if args.ColorScheme != "" {
 			patch["colorScheme"] = args.ColorScheme
+		}
+		if args.ClearBackground {
+			if args.BackgroundColor != "" || args.BackgroundImage != "" {
+				return nil, projectResult{}, fmt.Errorf("pass clear_background or a background, not both")
+			}
+			patch["backgroundImage"] = ""
+			patch["backgroundColor"] = ""
+		}
+		if args.BackgroundColor != "" {
+			patch["backgroundColor"] = args.BackgroundColor
+		}
+		if args.BackgroundImage != "" {
+			patch["backgroundImage"] = args.BackgroundImage
+		}
+		if args.TextColor != "" {
+			patch["textColor"] = args.TextColor
+		}
+		if args.ShowMilestones != nil {
+			patch["showMilestones"] = *args.ShowMilestones
+		}
+		if args.ShowArchived != nil {
+			patch["showArchived"] = *args.ShowArchived
+		}
+		if args.ShowFiles != nil {
+			patch["showFiles"] = *args.ShowFiles
 		}
 		if len(patch) == 0 {
 			return nil, projectResult{}, fmt.Errorf("nothing to update")
@@ -893,16 +1076,17 @@ func registerTools(s *mcp.Server, c *Client) {
 	})
 
 	type updateColumnArgs struct {
-		ColumnID  string   `json:"column_id" jsonschema:"column UUID (the id, not the key)"`
-		Title     string   `json:"title,omitempty" jsonschema:"new title, max 80 characters"`
-		Color     string   `json:"color,omitempty" jsonschema:"palette token, or empty string to clear"`
-		Position  *float64 `json:"position,omitempty" jsonschema:"new position; use a midpoint to slot between two columns"`
-		IsDone    *bool    `json:"is_done,omitempty" jsonschema:"whether cards here count as done"`
-		CardLimit *int     `json:"card_limit,omitempty" jsonschema:"WIP limit; 0 clears it"`
+		ColumnID   string   `json:"column_id" jsonschema:"column UUID (the id, not the key)"`
+		Title      string   `json:"title,omitempty" jsonschema:"new title, max 80 characters"`
+		Color      string   `json:"color,omitempty" jsonschema:"palette token: yellow, blue, green, red, purple, pink, orange, gray, amber, violet or emerald"`
+		ClearColor bool     `json:"clear_color,omitempty" jsonschema:"set true to drop the colour back to the column's default"`
+		Position   *float64 `json:"position,omitempty" jsonschema:"new position; use a midpoint to slot between two columns"`
+		IsDone     *bool    `json:"is_done,omitempty" jsonschema:"whether cards here count as done"`
+		CardLimit  *int     `json:"card_limit,omitempty" jsonschema:"WIP limit, a positive integer; 0 clears it"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "update_column",
-		Description: "Rename, recolour, reorder or set the WIP limit on a column. Omitted fields are left unchanged.",
+		Description: "Rename, recolour, reorder or set the WIP limit on a column. Board admins only. Omitted fields are left unchanged.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args updateColumnArgs) (*mcp.CallToolResult, columnResult, error) {
 		patch := map[string]any{}
 		if args.Title != "" {
@@ -910,6 +1094,8 @@ func registerTools(s *mcp.Server, c *Client) {
 		}
 		if args.Color != "" {
 			patch["color"] = args.Color
+		} else if args.ClearColor {
+			patch["color"] = ""
 		}
 		if args.Position != nil {
 			patch["position"] = *args.Position
@@ -1095,14 +1281,15 @@ func registerTools(s *mcp.Server, c *Client) {
 		SubscriptionID string    `json:"subscription_id" jsonschema:"webhook subscription UUID - the 'id' field from list_webhooks/create_webhook, NOT endpointId"`
 		URL            string    `json:"url,omitempty" jsonschema:"new destination URL (omit to leave unchanged)"`
 		Description    string    `json:"description,omitempty" jsonschema:"new label (omit to leave unchanged)"`
+		ClearDesc      bool      `json:"clear_description,omitempty" jsonschema:"set true to remove the label"`
 		Format         string    `json:"format,omitempty" jsonschema:"'craaft', 'slack' or 'discord' (omit to leave unchanged)"`
 		Events         *[]string `json:"events,omitempty" jsonschema:"replace the event filter (empty array = subscribe to every event); omit to leave unchanged"`
 		Active         *bool     `json:"active,omitempty" jsonschema:"pause (false) or resume (true) delivery"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "update_webhook",
-		Description: "Update a webhook subscription: pause/resume it, or change its URL, format or event " +
-			"filter. Omitted fields are left unchanged. Needs Pro even though the webhook already exists " +
+		Description: "Update a webhook subscription: pause/resume it, or change its URL, label, format or " +
+			"event filter. Omitted fields are left unchanged. Needs Pro even though the webhook already exists " +
 			"- on a downgraded (Free) board this returns 402; delete_webhook stays open so a downgraded " +
 			"workspace can still clean up.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args updateWebhookArgs) (*mcp.CallToolResult, webhookResult, error) {
@@ -1112,6 +1299,8 @@ func registerTools(s *mcp.Server, c *Client) {
 		}
 		if args.Description != "" {
 			patch["description"] = args.Description
+		} else if args.ClearDesc {
+			patch["description"] = ""
 		}
 		if args.Format != "" {
 			patch["format"] = args.Format
@@ -1311,7 +1500,8 @@ func registerTools(s *mcp.Server, c *Client) {
 		Name: "invite_member",
 		Description: "Invite someone to the workspace by email. If they already have an account the " +
 			"invitation is consumed immediately; otherwise it applies when they register. Board grants " +
-			"are applied atomically on accept.",
+			"are applied atomically on accept. Workspace owners and admins only. Inviting is a Pro " +
+			"feature - a Free workspace gets 402.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args inviteArgs) (*mcp.CallToolResult, invitationResult, error) {
 		if args.Role != "admin" && args.Role != "member" {
 			return nil, invitationResult{}, fmt.Errorf("role must be admin or member, got %q", args.Role)
@@ -1358,8 +1548,10 @@ func registerTools(s *mcp.Server, c *Client) {
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "grant_board_access",
-		Description: "Give a workspace member access to a specific board. Board admins only. Only " +
-			"meaningful for workspace 'member' role users - owners and admins already see every board.",
+		Description: "Give a workspace member access to a specific board, or change the role of an " +
+			"existing grant (calling it again with a different role updates the grant in place). Board " +
+			"admins only. Only meaningful for workspace 'member' role users - owners and admins already " +
+			"see every board.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args grantArgs) (*mcp.CallToolResult, okResult, error) {
 		if args.Role != "admin" && args.Role != "contributor" {
 			return nil, okResult{}, fmt.Errorf("role must be admin or contributor, got %q", args.Role)

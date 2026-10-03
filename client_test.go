@@ -518,24 +518,130 @@ func TestGetFocusDecodesHygieneCounters(t *testing.T) {
 }
 
 // Regression test: FocusDue used to have no AssignedUserID field at all, so
-// it was silently dropped even though both /cards/upcoming and /cards/focus
-// send it.
-func TestGetUpcomingDecodesAssignedUserID(t *testing.T) {
+// it was silently dropped from the /cards/focus "due" array.
+func TestGetFocusDecodesDueAssignedUserID(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode([]map[string]any{
-			{"id": "c1", "projectId": "p1", "projectName": "P", "columnKey": "todo", "columnTitle": "To Do",
-				"title": "T", "dueDate": "2026-10-01T00:00:00Z", "assignedUserId": "u1", "assignedUserName": "Sam"},
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"due": []map[string]any{
+				{"id": "c1", "projectId": "p1", "projectName": "P", "columnKey": "todo", "columnTitle": "To Do",
+					"title": "T", "dueDate": "2026-10-01T00:00:00Z", "assignedUserId": "u1", "assignedUserName": "Sam"},
+			},
+			"attention": []any{}, "hygiene": map[string]any{},
 		})
 	}))
 	t.Cleanup(srv.Close)
 	c := NewClient(srv.URL, "cra_testtoken")
 
-	cards, err := c.GetUpcoming(context.Background())
+	focus, err := c.GetFocus(context.Background())
 	if err != nil {
-		t.Fatalf("GetUpcoming: %v", err)
+		t.Fatalf("GetFocus: %v", err)
 	}
-	if len(cards) != 1 || cards[0].AssignedUserID == nil || *cards[0].AssignedUserID != "u1" {
+	if len(focus.Due) != 1 || focus.Due[0].AssignedUserID == nil || *focus.Due[0].AssignedUserID != "u1" {
+		t.Errorf("due = %+v", focus.Due)
+	}
+}
+
+// q, limit and before must all be escaped onto the query string (before is
+// an RFC3339Nano cursor, so its '+' offset would otherwise read as a
+// space), and an empty value must leave its parameter off.
+func TestListBoardFilesQueryParams(t *testing.T) {
+	c, calls := stubAPI(t, map[string]any{
+		"GET /api/v1/projects/p1/files": map[string]any{
+			"items": []map[string]any{{"id": "f1", "name": "spec.pdf", "size": 10, "contentType": "application/pdf",
+				"card": map[string]any{"id": "c1", "title": "Spec", "column": "todo", "archived": true}}},
+			"total": 7, "nextBefore": "2026-09-01T00:00:00.5+02:00",
+		},
+	})
+	page, err := c.ListBoardFiles(context.Background(), "p1", "spec #2", 20, "2026-09-02T00:00:00.5+02:00")
+	if err != nil {
+		t.Fatalf("ListBoardFiles: %v", err)
+	}
+	const want = "/api/v1/projects/p1/files?before=2026-09-02T00%3A00%3A00.5%2B02%3A00&limit=20&q=spec+%232"
+	if (*calls)[0].URI != want {
+		t.Errorf("sent %q\n want %q", (*calls)[0].URI, want)
+	}
+	if page.Total != 7 || len(page.Items) != 1 || !page.Items[0].Card.Archived || page.NextBefore == "" {
+		t.Errorf("page = %+v", page)
+	}
+
+	if _, err := c.ListBoardFiles(context.Background(), "p1", "", 0, ""); err != nil {
+		t.Fatalf("ListBoardFiles: %v", err)
+	}
+	if (*calls)[1].URI != "/api/v1/projects/p1/files" {
+		t.Errorf("empty arguments sent %q, want no query string", (*calls)[1].URI)
+	}
+}
+
+func TestMarkNotificationsReadBodies(t *testing.T) {
+	c, calls := stubAPI(t, map[string]any{
+		"POST /api/v1/me/notifications/read":     map[string]any{"unseen": 3},
+		"POST /api/v1/me/notifications/read-all": map[string]any{"unseen": 0},
+	})
+	ctx := context.Background()
+
+	n, err := c.MarkNotificationsRead(ctx, []string{"n1", "n2"}, "")
+	if err != nil || n != 3 {
+		t.Fatalf("MarkNotificationsRead = (%d, %v)", n, err)
+	}
+	if got, _ := json.Marshal((*calls)[0].Body); string(got) != `{"ids":["n1","n2"]}` {
+		t.Errorf("ids body = %s", got)
+	}
+
+	if _, err := c.MarkNotificationsRead(ctx, nil, "c1"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := json.Marshal((*calls)[1].Body); string(got) != `{"cardId":"c1"}` {
+		t.Errorf("card body = %s", got)
+	}
+
+	if _, err := c.MarkAllNotificationsRead(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if call := (*calls)[2]; call.URI != "/api/v1/me/notifications/read-all" || call.HasBody {
+		t.Errorf("read-all = %+v, want a bodiless POST", call)
+	}
+}
+
+func TestRebalanceColumnBody(t *testing.T) {
+	c, calls := stubAPI(t, map[string]any{
+		"POST /api/v1/projects/p1/cards/rebalance": map[string]any{"cards": []map[string]any{
+			{"id": "b", "column": "todo", "position": 1}, {"id": "a", "column": "todo", "position": 2},
+		}},
+	})
+	cards, err := c.RebalanceColumn(context.Background(), "p1", "todo", []string{"b", "a"})
+	if err != nil {
+		t.Fatalf("RebalanceColumn: %v", err)
+	}
+	if got, _ := json.Marshal((*calls)[0].Body); string(got) != `{"column":"todo","ids":["b","a"]}` {
+		t.Errorf("body = %s", got)
+	}
+	if len(cards) != 2 || cards[0].ID != "b" {
 		t.Errorf("cards = %+v", cards)
+	}
+}
+
+// positionForEnd must follow the SPA: one step past the column's highest
+// position, ignoring other columns, and one step on an empty column.
+func TestPositionForEnd(t *testing.T) {
+	cards := []Card{
+		{Column: "todo", Position: 9}, {Column: "todo", Position: -2}, {Column: "doing", Position: 50},
+	}
+	if got := positionForEnd(cards, "todo"); got != 10 {
+		t.Errorf("todo = %v, want 10", got)
+	}
+	if got := positionForEnd(cards, "done"); got != 1 {
+		t.Errorf("empty column = %v, want 1", got)
+	}
+}
+
+// Project decodes the board toggles so get_project/list_projects show them.
+func TestProjectDecodesToggles(t *testing.T) {
+	var p Project
+	if err := json.Unmarshal([]byte(`{"id":"p1","showMilestones":true,"showArchived":true,"showFiles":false}`), &p); err != nil {
+		t.Fatal(err)
+	}
+	if !p.ShowMilestones || !p.ShowArchived || p.ShowFiles {
+		t.Errorf("project = %+v", p)
 	}
 }
