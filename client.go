@@ -1021,6 +1021,167 @@ func (c *Client) ExportProject(ctx context.Context, projectID, format string) ([
 	return data, err
 }
 
+// ── Import ────────────────────────────────────────────────────────
+
+// MaxImportBytes mirrors the server's 5 MB per-file import cap.
+const MaxImportBytes = 5 * 1024 * 1024
+
+// ImportRequest is one import upload. Source, Name and Mapping are optional:
+// an empty Source lets the server detect the format, and a nil Mapping keeps
+// the server's suggested CSV mapping.
+type ImportRequest struct {
+	Filename string
+	Data     []byte
+	Source   string
+	Name     string
+	Mapping  map[string]string
+}
+
+type ImportColumn struct {
+	Title  string `json:"title"`
+	IsDone bool   `json:"isDone"`
+	Cards  int    `json:"cards"`
+}
+
+type ImportWarning struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+type ImportTotals struct {
+	Cards          int `json:"cards"`
+	Archived       int `json:"archived"`
+	Comments       int `json:"comments"`
+	ChecklistItems int `json:"checklistItems"`
+	Tags           int `json:"tags"`
+}
+
+// ImportAssignees reports which assignee emails or usernames in the file matched
+// a workspace member (they get the card and contributor access to the new
+// board) and which didn't (those cards import unassigned).
+type ImportAssignees struct {
+	Matched []struct {
+		Source string `json:"source"`
+		UserID string `json:"userId"`
+		Name   string `json:"name"`
+	} `json:"matched"`
+	Unmatched []string `json:"unmatched"`
+}
+
+type ImportCSV struct {
+	Headers []string          `json:"headers"`
+	Mapping map[string]string `json:"mapping"`
+	Sample  [][]string        `json:"sample"`
+}
+
+// ImportPreview is what POST /imports/preview answers: the board Import
+// would create, written nowhere. CSV is set for CSV-family sources; when the
+// server couldn't guess a title column, Columns is empty and CSV carries the
+// headers to map.
+type ImportPreview struct {
+	Source    string          `json:"source"`
+	Name      string          `json:"name"`
+	Columns   []ImportColumn  `json:"columns"`
+	Totals    ImportTotals    `json:"totals"`
+	Assignees ImportAssignees `json:"assignees"`
+	Warnings  []ImportWarning `json:"warnings"`
+	CSV       *ImportCSV      `json:"csv,omitempty"`
+}
+
+// PreviewImport parses and plans an import without writing anything.
+func (c *Client) PreviewImport(ctx context.Context, in ImportRequest) (*ImportPreview, error) {
+	body, err := c.importCall(ctx, "/api/v1/imports/preview", in)
+	if err != nil {
+		return nil, err
+	}
+	var p ImportPreview
+	if err := json.Unmarshal(body, &p); err != nil {
+		return nil, fmt.Errorf("decode import preview: %w", err)
+	}
+	return &p, nil
+}
+
+// ImportBoard creates a new board from the upload. Import never writes into
+// an existing board. The returned Project is the full board when the server
+// could reload it, otherwise just its id and name (the board still exists).
+func (c *Client) ImportBoard(ctx context.Context, in ImportRequest) (*Project, error) {
+	body, err := c.importCall(ctx, "/api/v1/imports", in)
+	if err != nil {
+		return nil, err
+	}
+	var p Project
+	if err := json.Unmarshal(body, &p); err != nil {
+		return nil, fmt.Errorf("decode imported board: %w", err)
+	}
+	return &p, nil
+}
+
+// importCall sends the multipart upload both import endpoints take: a "file"
+// part plus optional source, name and mapping (JSON) fields.
+func (c *Client) importCall(ctx context.Context, path string, in ImportRequest) ([]byte, error) {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	part, err := w.CreateFormFile("file", in.Filename)
+	if err != nil {
+		return nil, fmt.Errorf("build multipart: %w", err)
+	}
+	if _, err := part.Write(in.Data); err != nil {
+		return nil, fmt.Errorf("write multipart: %w", err)
+	}
+	fields := [][2]string{{"source", in.Source}, {"name", in.Name}}
+	if in.Mapping != nil {
+		m, err := json.Marshal(in.Mapping)
+		if err != nil {
+			return nil, fmt.Errorf("marshal mapping: %w", err)
+		}
+		fields = append(fields, [2]string{"mapping", string(m)})
+	}
+	for _, f := range fields {
+		if f[1] == "" {
+			continue
+		}
+		if err := w.WriteField(f[0], f[1]); err != nil {
+			return nil, fmt.Errorf("write %s: %w", f[0], err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		return nil, fmt.Errorf("close multipart: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, &buf)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+
+	resp, err := c.send(req)
+	if err != nil {
+		return nil, fmt.Errorf("execute request: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+	if resp.StatusCode >= 400 {
+		var errResp struct {
+			Error       string `json:"error"`
+			CurrentPlan string `json:"currentPlan"`
+		}
+		if json.Unmarshal(body, &errResp) == nil && errResp.Error != "" {
+			// 402 means the workspace is at its board cap; the plan is the
+			// actionable part.
+			if resp.StatusCode == http.StatusPaymentRequired && errResp.CurrentPlan != "" {
+				return nil, fmt.Errorf("%s (workspace plan: %s)", errResp.Error, errResp.CurrentPlan)
+			}
+			return nil, fmt.Errorf("%s", errResp.Error)
+		}
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+	}
+	return body, nil
+}
+
 // ── Columns ───────────────────────────────────────────────────────
 
 func (c *Client) AddColumn(ctx context.Context, projectID, title string) (*Column, error) {

@@ -86,6 +86,8 @@ To revoke access later, go to Craaft **Settings > Connected apps**.
 | `update_project` | Rename, favourite, change visibility, colour scheme, background, text colour or top-bar buttons |
 | `delete_project` | Delete a board and everything in it |
 | `export_project` | Export a board as JSON or CSV |
+| `preview_import` | Dry run of an import: what board a Trello, Jira, Asana, CSV or craaft export would create |
+| `import_board` | Create a new board from a Trello, Jira, Asana, CSV or craaft export |
 | `list_board_templates` | The fixed catalogue of board templates (kanban, sprint, bug tracker, ...) |
 | `add_column` | Add a column to a board |
 | `update_column` | Rename, recolour, reorder, or set a WIP limit |
@@ -162,6 +164,18 @@ base64 is not, so binary over the limit is skipped entirely.
 Attachments are a paid feature. On a Free workspace the upload returns 402
 and the error names the current plan. Check `canUploadAttachments` on the
 project first - it reflects the **board's** workspace plan, not the caller's.
+
+### Import
+
+`preview_import` and `import_board` take the same arguments: `filename`,
+the file inline (`content_text` or `content_base64`), and optionally
+`source` (`trello`, `jira`, `asana`, `csv` or `craaft`; detected when left
+out), `name` for the new board, and a CSV `mapping` from craaft fields to
+headers. Preview first: it writes nothing and, for a CSV, returns the
+headers, the suggested mapping and sample rows. A mapping replaces the
+suggestion, so send every field you want. `import_board` always creates a
+new private board and counts toward the workspace's board limit (402 when
+full). Limits: 5 MB, 2,000 cards, 200 columns; attachments aren't imported.
 
 ### Known platform quirk: archive then delete
 
