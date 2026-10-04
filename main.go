@@ -1053,6 +1053,88 @@ func registerTools(s *mcp.Server, c *Client) {
 		return nil, exportResult{Format: format, Size: len(data), Content: string(data)}, nil
 	})
 
+	// ── import ────────────────────────────────────────────────────
+	type importArgs struct {
+		Filename    string            `json:"filename" jsonschema:"file name with its extension, e.g. trello-board.json or issues.csv; the extension helps detect the format"`
+		ContentText string            `json:"content_text,omitempty" jsonschema:"file contents as text (JSON or CSV); use this or content_base64"`
+		ContentB64  string            `json:"content_base64,omitempty" jsonschema:"file contents, standard base64; use this or content_text"`
+		Source      string            `json:"source,omitempty" jsonschema:"trello, jira, asana, csv or craaft; omit to detect from the file"`
+		Name        string            `json:"name,omitempty" jsonschema:"name for the new board; omit to use the name from the file"`
+		Mapping     map[string]string `json:"mapping,omitempty" jsonschema:"CSV only: craaft field to CSV header, e.g. {\"title\":\"Summary\",\"column\":\"Status\"}. Fields: title (required), description, column, dueDate, priority, tags, assignee, archived. Replaces the suggested mapping, so include every field you want"`
+	}
+	importInput := func(args importArgs) (ImportRequest, error) {
+		if args.Filename == "" {
+			return ImportRequest{}, fmt.Errorf("filename is required")
+		}
+		if (args.ContentB64 == "") == (args.ContentText == "") {
+			return ImportRequest{}, fmt.Errorf("provide exactly one of content_base64 or content_text")
+		}
+		switch args.Source {
+		case "", "trello", "jira", "asana", "csv", "craaft":
+		default:
+			return ImportRequest{}, fmt.Errorf("source must be trello, jira, asana, csv or craaft, got %q", args.Source)
+		}
+		var data []byte
+		if args.ContentText != "" {
+			data = []byte(args.ContentText)
+		} else {
+			decoded, err := base64.StdEncoding.DecodeString(args.ContentB64)
+			if err != nil {
+				return ImportRequest{}, fmt.Errorf("content_base64 is not valid base64: %w", err)
+			}
+			data = decoded
+		}
+		if len(data) == 0 {
+			return ImportRequest{}, fmt.Errorf("file is empty")
+		}
+		if len(data) > MaxImportBytes {
+			return ImportRequest{}, fmt.Errorf("file is %d bytes, over the 5 MB import limit", len(data))
+		}
+		return ImportRequest{Filename: args.Filename, Data: data, Source: args.Source, Name: args.Name, Mapping: args.Mapping}, nil
+	}
+	type previewImportResult struct {
+		Preview ImportPreview `json:"preview"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "preview_import",
+		Description: "Dry run of import_board: parse a Trello JSON, Jira or Asana CSV, plain CSV or craaft JSON " +
+			"export and return the board it would create (name, columns with card counts, totals, assignee " +
+			"matches, warnings). Writes nothing. For CSV it also returns the headers, the suggested mapping and " +
+			"3 sample rows; if no title column was guessed, columns come back empty, so pick one and preview " +
+			"again with mapping. This server runs remotely and cannot read your filesystem, so send the file " +
+			"inline. Max 5 MB, 2,000 cards, 200 columns. Attachments are not imported.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args importArgs) (*mcp.CallToolResult, previewImportResult, error) {
+		in, err := importInput(args)
+		if err != nil {
+			return nil, previewImportResult{}, err
+		}
+		p, err := c.PreviewImport(ctx, in)
+		if err != nil {
+			return nil, previewImportResult{}, err
+		}
+		return nil, previewImportResult{Preview: *p}, nil
+	})
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "import_board",
+		Description: "Create a new board from a Trello JSON, Jira or Asana CSV, plain CSV or craaft JSON export. " +
+			"Call preview_import with the same arguments first and check the result with the user: this " +
+			"always creates a new private board (it never writes into an existing one) and counts toward " +
+			"the workspace's board limit (402 when it is full). Assignees are matched to workspace members " +
+			"by email or username, and matched people get access to the new board; unmatched cards import " +
+			"unassigned. Imported cards send no notifications. " +
+			"Send the file inline. Max 5 MB, 2,000 cards, 200 columns.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args importArgs) (*mcp.CallToolResult, projectResult, error) {
+		in, err := importInput(args)
+		if err != nil {
+			return nil, projectResult{}, err
+		}
+		p, err := c.ImportBoard(ctx, in)
+		if err != nil {
+			return nil, projectResult{}, err
+		}
+		return nil, projectResult{Project: *p}, nil
+	})
+
 	// ── columns ───────────────────────────────────────────────────
 	type columnResult struct {
 		Column Column `json:"column"`
