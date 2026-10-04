@@ -272,11 +272,11 @@ func TestUpdateProjectSendsToggles(t *testing.T) {
 		},
 	})
 	res := callTool(t, toolSession(t, c), "update_project", map[string]any{
-		"project_id": "p1", "show_milestones": true, "show_archived": false, "show_files": true,
+		"project_id": "p1", "show_milestones": true, "show_archived": false, "show_files": true, "show_standup": false,
 		"text_color": "light", "background_color": "#112233",
 	})
 	got, _ := json.Marshal(onlyCall(t, *calls, http.MethodPatch).Body)
-	const want = `{"backgroundColor":"#112233","showArchived":false,"showFiles":true,"showMilestones":true,"textColor":"light"}`
+	const want = `{"backgroundColor":"#112233","showArchived":false,"showFiles":true,"showMilestones":true,"showStandup":false,"textColor":"light"}`
 	if string(got) != want {
 		t.Errorf("body = %s, want %s", got, want)
 	}
