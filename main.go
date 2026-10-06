@@ -949,6 +949,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		ShowMilestones   *bool  `json:"show_milestones,omitempty" jsonschema:"show or hide the milestones button on the board's top bar"`
 		ShowArchived     *bool  `json:"show_archived,omitempty" jsonschema:"show or hide the archived-cards button on the board's top bar"`
 		ShowFiles        *bool  `json:"show_files,omitempty" jsonschema:"show or hide the files button on the board's top bar"`
+		ShowStandup      *bool  `json:"show_standup,omitempty" jsonschema:"show or hide the standup button on the board's top bar"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "update_project",
@@ -999,6 +1000,9 @@ func registerTools(s *mcp.Server, c *Client) {
 		}
 		if args.ShowFiles != nil {
 			patch["showFiles"] = *args.ShowFiles
+		}
+		if args.ShowStandup != nil {
+			patch["showStandup"] = *args.ShowStandup
 		}
 		if len(patch) == 0 {
 			return nil, projectResult{}, fmt.Errorf("nothing to update")
@@ -1893,8 +1897,11 @@ func registerTools(s *mcp.Server, c *Client) {
 		User json.RawMessage `json:"user"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "get_me",
-		Description: "Get the current authenticated user's profile (name, email, username).",
+		Name: "get_me",
+		Description: "Get the current authenticated user's profile (name, email, username). " +
+			"twoFactorEnabled says whether two-factor sign-in is on; it only affects signing in " +
+			"with a password in the browser. Tokens are unaffected, and two-factor, password and " +
+			"API key settings can only be changed in the browser, so point the user to Settings.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, meResult, error) {
 		data, _, err := c.do(ctx, "GET", "/api/v1/me", nil)
 		if err != nil {

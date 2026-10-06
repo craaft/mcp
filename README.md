@@ -4,6 +4,8 @@ Model Context Protocol server for [Craaft](https://craaft.io) - lets AI assistan
 
 Deployed as an HTTP service. Each request authenticates via the caller's `Authorization: Bearer` header - either a `cra_*` personal access token (same ones used by the Craaft REST API) or a `cro_*` OAuth access token minted by signing in through the connector flow below.
 
+Two-factor sign-in on a craaft account doesn't affect either kind of token. Account security settings (password, two-factor, API keys) are browser-only on the platform, so no tool changes them.
+
 ## Deploy
 
 ```bash
