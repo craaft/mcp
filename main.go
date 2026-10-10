@@ -433,14 +433,18 @@ func registerTools(s *mcp.Server, c *Client) {
 	// ── add_comment ───────────────────────────────────────────────
 	type addCommentArgs struct {
 		CardID string `json:"card_id" jsonschema:"card UUID"`
-		Body   string `json:"body" jsonschema:"comment body (markdown supported)"`
+		Body   string `json:"body" jsonschema:"comment body in markdown, up to 5000 characters"`
 	}
 	type addCommentResult struct {
 		Comment Comment `json:"comment"`
 	}
 	addTool(s, &mcp.Tool{
-		Name:        "add_comment",
-		Description: "Add a comment to a card. Supports markdown and @username mentions.",
+		Name: "add_comment",
+		Description: "Add a comment to a card. Calls POST /api/v1/cards/{id}/comments; the request and " +
+			"response are documented in craaft's API spec at https://craaft.io/openapi.yaml, with an " +
+			"overview at https://craaft.io/docs. The body is markdown, up to 5000 characters. Each " +
+			"@username notifies that person if they can see the board (never the author). A comment with " +
+			"no mentions notifies the card's followers instead.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args addCommentArgs) (*mcp.CallToolResult, addCommentResult, error) {
 		comment, err := c.AddComment(ctx, args.CardID, args.Body)
 		if err != nil {
@@ -1671,8 +1675,10 @@ func registerTools(s *mcp.Server, c *Client) {
 		Comment Comment `json:"comment"`
 	}
 	addTool(s, &mcp.Tool{
-		Name:        "update_comment",
-		Description: "Edit a comment. Author only - editing someone else's returns 404.",
+		Name: "update_comment",
+		Description: "Edit a comment. Author only: editing someone else's returns 404. Calls PATCH " +
+			"/api/v1/comments/{id}, documented in craaft's API spec at https://craaft.io/openapi.yaml. " +
+			"The body is markdown, up to 5000 characters.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args updateCommentArgs) (*mcp.CallToolResult, commentResult, error) {
 		if args.Body == "" {
 			return nil, commentResult{}, fmt.Errorf("body is required")
