@@ -334,3 +334,49 @@ func TestListNotificationsIncludesUnseenCount(t *testing.T) {
 		}
 	}
 }
+
+// Every registered tool must reach clients with a title and annotations (the
+// connector directory flags tools without them), and toolAnnotations must not
+// keep entries for tools that no longer exist.
+func TestEveryToolIsAnnotated(t *testing.T) {
+	ctx := context.Background()
+	s := mcp.NewServer(&mcp.Implementation{Name: "craaft-mcp-test", Version: "test"}, nil)
+	registerTools(s, NewClient("http://localhost:0", "cra_testtoken"))
+
+	serverT, clientT := mcp.NewInMemoryTransports()
+	ss, err := s.Connect(ctx, serverT, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ss.Close()
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "test"}, nil).Connect(ctx, clientT, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+
+	res, err := cs.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, tool := range res.Tools {
+		seen[tool.Name] = true
+		a := tool.Annotations
+		switch {
+		case a == nil:
+			t.Errorf("%s: no annotations", tool.Name)
+		case tool.Title == "" || a.Title == "":
+			t.Errorf("%s: no title", tool.Name)
+		case !a.ReadOnlyHint && a.DestructiveHint == nil:
+			t.Errorf("%s: writes but doesn't declare destructiveHint", tool.Name)
+		case a.OpenWorldHint == nil:
+			t.Errorf("%s: no openWorldHint", tool.Name)
+		}
+	}
+	for name := range toolAnnotations {
+		if !seen[name] {
+			t.Errorf("toolAnnotations has %s, but no such tool is registered", name)
+		}
+	}
+}

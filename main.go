@@ -124,7 +124,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type listProjectsResult struct {
 		Projects []Project `json:"projects"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "list_projects",
 		Description: "List all Kanban projects accessible to the authenticated user. Returns project names, IDs, column counts, and card totals.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, listProjectsResult, error) {
@@ -143,7 +143,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		Project Project `json:"project"`
 		Cards   []Card  `json:"cards"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "get_board",
 		Description: "Get a Kanban board: its columns and every card with metadata (title, due date, " +
 			"assignee, priority, size, tags, checklist progress). Card descriptions are omitted — use " +
@@ -165,7 +165,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type searchCardsResult struct {
 		Results []SearchResult `json:"results"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "search_cards",
 		Description: "Search for cards across all accessible projects by title and description text. " +
 			"Each hit's description is a ≤180-character snippet, not the full body — use get_card or " +
@@ -189,7 +189,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type getCardResult struct {
 		Card Card `json:"card"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "get_card",
 		Description: "Get a single card by its ID, with full metadata including description. Prefer this " +
 			"over get_board when you already know the card ID — get_board omits description and returns " +
@@ -211,7 +211,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		Checklist   []ChecklistItem `json:"checklist"`
 		Attachments []Attachment    `json:"attachments"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "get_card_detail",
 		Description: "Get a card plus its comments, activity events (newest 100, oldest-first), " +
 			"checklist and attachments in one call. Prefer this over get_card + get_comments + " +
@@ -242,7 +242,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type createCardResult struct {
 		Card Card `json:"card"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "create_card",
 		Description: "Create a new card at the bottom of a column. The card is assigned to you and you " +
 			"follow it, unless assigned_user_id names someone else. Due date, assignee, size, priority " +
@@ -317,7 +317,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type updateCardResult struct {
 		Card Card `json:"card"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "update_card",
 		Description: "Update a card's title, description, column, position or metadata. Omit a field to leave it unchanged. Set a clear_* flag to empty a field (description, due date, assignee, size, priority, tags).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args updateCardArgs) (*mcp.CallToolResult, updateCardResult, error) {
@@ -388,7 +388,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type moveCardResult struct {
 		Card Card `json:"card"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "move_card",
 		Description: "Move a card to a column. Optionally move it to a different board (must be in the same " +
 			"workspace); it lands at the bottom of the target column. Naming the card's current board " +
@@ -418,7 +418,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type deleteCardArgs struct {
 		CardID string `json:"card_id" jsonschema:"card UUID to delete"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "delete_card",
 		Description: "Permanently delete a card. This cannot be undone.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args deleteCardArgs) (*mcp.CallToolResult, struct{}, error) {
@@ -438,7 +438,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type addCommentResult struct {
 		Comment Comment `json:"comment"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "add_comment",
 		Description: "Add a comment to a card. Supports markdown and @username mentions.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args addCommentArgs) (*mcp.CallToolResult, addCommentResult, error) {
@@ -456,7 +456,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type getCommentsResult struct {
 		Comments []Comment `json:"comments"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "get_comments",
 		Description: "List all comments on a card, oldest first.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args getCommentsArgs) (*mcp.CallToolResult, getCommentsResult, error) {
@@ -471,7 +471,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type getFocusResult struct {
 		Focus FocusResponse `json:"focus"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "get_focus",
 		Description: "Get a focus overview: cards that are due, cards needing attention (stale in progress, high priority, idle), and hygiene counters (ghost cards, stuck cards, assigned without due date).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, getFocusResult, error) {
@@ -493,7 +493,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		NextBefore    string         `json:"nextBefore,omitempty"`
 		Unseen        int            `json:"unseen"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "list_notifications",
 		Description: "List your in-app notifications, newest first: mentions, assignments, and comments, " +
 			"moves and updates on cards you follow. Unread comment/moved/updated rows on the same card " +
@@ -521,7 +521,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type markReadResult struct {
 		Unseen int `json:"unseen"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "mark_notifications_read",
 		Description: "Mark notifications read: specific ids, everything about one card, or all of them " +
 			"(all=true). Ids that aren't yours or don't exist are ignored. Returns the unseen count left.",
@@ -557,7 +557,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type bulkCardsResult struct {
 		Cards []Card `json:"cards"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "bulk_create_cards",
 		Description: "Create up to 100 cards on one board in a single transaction. Strongly prefer this " +
 			"over looping create_card: it costs one rate-limit token instead of one per card, and it is " +
@@ -575,7 +575,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type bulkUpdateArgs struct {
 		Cards []map[string]any `json:"cards" jsonschema:"up to 100 patch objects. Each needs an id plus the fields to change; omit a field to leave it alone, send null to clear a nullable one (dueDate, assignedUserId, size, priority, tags)"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "bulk_update_cards",
 		Description: "Apply up to 100 partial card updates in one transaction. Same field semantics as " +
 			"update_card. All-or-nothing: one bad item rolls the whole batch back and the error names " +
@@ -594,7 +594,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		Column          string   `json:"column" jsonschema:"destination column key"`
 		TargetProjectID string   `json:"target_project_id,omitempty" jsonschema:"optional destination board UUID (same workspace). Omit to move within the cards' current board"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "bulk_move_cards",
 		Description: "Sweep up to 100 cards into a column in one transaction. Without target_project_id " +
 			"every id must already be on the SAME board (mixed boards return 400). With it, the batch " +
@@ -613,7 +613,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		Column    string   `json:"column" jsonschema:"column key to put the cards in"`
 		IDs       []string `json:"ids" jsonschema:"card UUIDs in the order you want them, top first (up to 10000)"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "rebalance_cards",
 		Description: "Reorder a column in one transaction: the listed cards are put in the given column " +
 			"with positions 1, 2, 3, ... in the order given. Use it to sort a whole column (by priority, " +
@@ -639,7 +639,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type checklistResult struct {
 		Items []ChecklistItem `json:"items"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "get_checklist",
 		Description: "List a card's checklist items, in position order.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args cardIDArgs) (*mcp.CallToolResult, checklistResult, error) {
@@ -658,7 +658,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type checklistItemResult struct {
 		Item ChecklistItem `json:"item"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "add_checklist_item",
 		Description: "Append an item to a card's checklist.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args addChecklistArgs) (*mcp.CallToolResult, checklistItemResult, error) {
@@ -675,7 +675,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		Text   string `json:"text,omitempty" jsonschema:"new text, max 1000 characters"`
 		Done   *bool  `json:"done,omitempty" jsonschema:"tick or untick the item"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "update_checklist_item",
 		Description: "Tick, untick or retitle a checklist item. Omitted fields are left unchanged.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args updateChecklistArgs) (*mcp.CallToolResult, checklistItemResult, error) {
@@ -703,7 +703,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type deleteChecklistResult struct {
 		Deleted bool `json:"deleted"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "delete_checklist_item",
 		Description: "Permanently delete a checklist item.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args deleteChecklistArgs) (*mcp.CallToolResult, deleteChecklistResult, error) {
@@ -717,7 +717,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type activityResult struct {
 		Events []CardEvent `json:"events"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "get_card_activity",
 		Description: "Get a card's activity log (column moves, board moves, priority changes, assignee " +
 			"changes), oldest first. Useful for answering when something moved or who changed it. On a " +
@@ -738,7 +738,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type hygieneResult struct {
 		Cards []AttentionCard `json:"cards"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "get_hygiene",
 		Description: "List the actual cards behind one of get_focus's hygiene counters. get_focus tells " +
 			"you how many need attention; this tells you which ones, capped at 100.",
@@ -759,7 +759,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type attachmentsResult struct {
 		Attachments []Attachment `json:"attachments"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "list_attachments",
 		Description: "List the files attached to a card (name, size, content type, who uploaded it).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args cardIDArgs) (*mcp.CallToolResult, attachmentsResult, error) {
@@ -777,7 +777,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		Limit     int    `json:"limit,omitempty" jsonschema:"max files to return (default 100, max 200)"`
 		Before    string `json:"before,omitempty" jsonschema:"page cursor: the nextBefore value from the previous call"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "list_board_files",
 		Description: "List every file attached to cards on a board, newest first, with the card each one " +
 			"is on (archived cards included). query narrows it: each word must appear, case-insensitively, " +
@@ -805,7 +805,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		Truncated   bool   `json:"truncated,omitempty"`
 		Note        string `json:"note,omitempty"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "download_attachment",
 		Description: "Fetch an attachment's bytes. Text-ish files come back as readable text; anything " +
 			"else comes back base64-encoded. Attachments can be up to 25 MiB, which no conversation " +
@@ -856,7 +856,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type uploadResult struct {
 		Attachment Attachment `json:"attachment"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "upload_attachment",
 		Description: "Attach a file to a card. This server runs remotely and cannot read your filesystem, " +
 			"so send the contents inline: content_text for text, content_base64 for binary. Max 25 MiB. " +
@@ -898,7 +898,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type projectResult struct {
 		Project Project `json:"project"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "get_project",
 		Description: "Get one project with its columns, counts and your role on it, without loading every card.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args projectIDArgs) (*mcp.CallToolResult, projectResult, error) {
@@ -914,7 +914,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		Description string `json:"description,omitempty" jsonschema:"optional description"`
 		Template    string `json:"template,omitempty" jsonschema:"optional board template key from list_board_templates (e.g. 'sprint', 'bug-tracker'); omit for the default 'kanban' layout. An unknown key is rejected"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "create_project",
 		Description: "Create a board. Without a template it starts with the default To Do / In Progress / " +
 			"Done columns; pass template (a key from list_board_templates) to start from a different " +
@@ -951,7 +951,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		ShowFiles        *bool  `json:"show_files,omitempty" jsonschema:"show or hide the files button on the board's top bar"`
 		ShowStandup      *bool  `json:"show_standup,omitempty" jsonschema:"show or hide the standup button on the board's top bar"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "update_project",
 		Description: "Partially update a board: name, description, favourite, visibility, colour scheme, " +
 			"background, text colour and which top-bar buttons (milestones, archived cards, files) it " +
@@ -1017,7 +1017,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type okResult struct {
 		OK bool `json:"ok"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "delete_project",
 		Description: "Permanently delete a board AND everything inside it - columns, cards, comments, " +
 			"checklists and attachments all cascade. There is no undo.",
@@ -1038,7 +1038,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		Size    int    `json:"size"`
 		Content string `json:"content"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "export_project",
 		Description: "Export a board. JSON gives a versioned snapshot (project, columns, cards with " +
 			"metadata, comments, attachment metadata); CSV gives one row per card. Returned as text.",
@@ -1099,7 +1099,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type previewImportResult struct {
 		Preview ImportPreview `json:"preview"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "preview_import",
 		Description: "Dry run of import_board: parse a Trello JSON, Jira or Asana CSV, plain CSV or craaft JSON " +
 			"export and return the board it would create (name, columns with card counts, totals, assignee " +
@@ -1118,7 +1118,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		}
 		return nil, previewImportResult{Preview: *p}, nil
 	})
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "import_board",
 		Description: "Create a new board from a Trello JSON, Jira or Asana CSV, plain CSV or craaft JSON export. " +
 			"Call preview_import with the same arguments first and check the result with the user: this " +
@@ -1147,7 +1147,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		ProjectID string `json:"project_id" jsonschema:"project UUID"`
 		Title     string `json:"title" jsonschema:"column title, max 80 characters"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "add_column",
 		Description: "Add a column to a board. The server assigns its stable key, which is what card operations use as 'column'.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args addColumnArgs) (*mcp.CallToolResult, columnResult, error) {
@@ -1170,7 +1170,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		IsDone     *bool    `json:"is_done,omitempty" jsonschema:"whether cards here count as done"`
 		CardLimit  *int     `json:"card_limit,omitempty" jsonschema:"WIP limit, a positive integer; 0 clears it"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "update_column",
 		Description: "Rename, recolour, reorder or set the WIP limit on a column. Board admins only. Omitted fields are left unchanged.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args updateColumnArgs) (*mcp.CallToolResult, columnResult, error) {
@@ -1209,7 +1209,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type columnIDArgs struct {
 		ColumnID string `json:"column_id" jsonschema:"column UUID (the id, not the key)"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "delete_column",
 		Description: "Delete an empty column. Returns 409 if it still holds cards - move them with " +
 			"bulk_move_cards or clear it with archive_column first.",
@@ -1225,7 +1225,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		IDs      []string `json:"ids"`
 		Note     string   `json:"note,omitempty"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "archive_column",
 		Description: "Archive every card currently in a column. The cards leave the board but are not " +
 			"deleted, and the column itself stays. IMPORTANT: the server only archives cards in a " +
@@ -1250,7 +1250,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		Archived bool   `json:"archived"`
 		ID       string `json:"id"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "archive_card",
 		Description: "Archive a card: take it off its board without deleting it. It stays searchable and " +
 			"shows up in list_archived_cards until restored. Archiving a card that is already archived, " +
@@ -1265,7 +1265,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type restoreCardResult struct {
 		Card Card `json:"card"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "restore_card",
 		Description: "Restore an archived card. It goes back to the exact column and position it was " +
 			"archived from, so don't follow this with a move_card or update_card to 'put it back' - " +
@@ -1281,7 +1281,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type archivedCardsResult struct {
 		Cards []ArchivedCard `json:"cards"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "list_archived_cards",
 		Description: "List a board's archived cards, most recently archived first, capped at 200. Same " +
 			"lean shape as get_board's cards (description omitted) plus archivedAt. Older archived cards " +
@@ -1299,7 +1299,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type boardTemplatesResult struct {
 		Templates []BoardTemplate `json:"templates"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "list_board_templates",
 		Description: "List the fixed catalogue of board templates (kanban, sprint, bug tracker, content " +
 			"calendar, sales pipeline, ...) - the same for every caller, any authenticated user, no plan " +
@@ -1323,7 +1323,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		Webhooks       []WebhookSubscription `json:"webhooks"`
 		EventCatalogue []string              `json:"eventCatalogue"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "list_webhooks",
 		Description: "List a board's outbound webhook subscriptions plus the catalogue of broadcast " +
 			"event names available to filter on. Board admins only - a Free workspace gets 402, a board " +
@@ -1344,7 +1344,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		Format      string   `json:"format,omitempty" jsonschema:"'craaft' (default, signed JSON envelope), 'slack', or 'discord' (message posted to those services' incoming-webhook URLs, unsigned)"`
 		Events      []string `json:"events,omitempty" jsonschema:"broadcast event names to deliver, from list_webhooks' event_catalogue (e.g. 'card.created', 'card.updated'); omit or empty to subscribe to every event"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "create_webhook",
 		Description: "Register an outbound webhook on a board: Craaft POSTs matching board events to the " +
 			"given URL as they happen. Board admins on Pro boards only - a Free workspace gets 402. The " +
@@ -1372,7 +1372,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		Events         *[]string `json:"events,omitempty" jsonschema:"replace the event filter (empty array = subscribe to every event); omit to leave unchanged"`
 		Active         *bool     `json:"active,omitempty" jsonschema:"pause (false) or resume (true) delivery"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "update_webhook",
 		Description: "Update a webhook subscription: pause/resume it, or change its URL, label, format or " +
 			"event filter. Omitted fields are left unchanged. Needs Pro even though the webhook already exists " +
@@ -1410,7 +1410,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type webhookIDArgs struct {
 		SubscriptionID string `json:"subscription_id" jsonschema:"webhook subscription UUID - the 'id' field, NOT endpointId"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "delete_webhook",
 		Description: "Delete a webhook subscription. Board admin only. Not plan-gated, so a downgraded workspace can still remove one.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args webhookIDArgs) (*mcp.CallToolResult, okResult, error) {
@@ -1426,7 +1426,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		Address     *InboundAddress `json:"address,omitempty"`
 		AIAvailable bool            `json:"ai_available"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "get_inbound_email",
 		Description: "Get a board's email-to-card intake address. Board admins on Pro boards only. " +
 			"Returns enabled=false with no address when it has never been set up - that is not an error. " +
@@ -1448,7 +1448,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		TargetColumn string `json:"target_column,omitempty" jsonschema:"column key to place inbound cards in; omit for the board's first column"`
 		AIEnrich     *bool  `json:"ai_enrich,omitempty" jsonschema:"turn AI cards for email threads on or off; on returns an error when the server has no AI key"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "enable_inbound_email",
 		Description: "Turn on email-to-card for a board and mint its intake address. Board admins on Pro " +
 			"boards only. Returns an error (409 from the API) if the board already has an address - use " +
@@ -1473,7 +1473,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		Rotate            bool   `json:"rotate,omitempty" jsonschema:"set true to mint a new token; the old address stops accepting mail immediately"`
 		AIEnrich          *bool  `json:"ai_enrich,omitempty" jsonschema:"turn AI cards for email threads on or off; on returns an error when the server has no AI key"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "update_inbound_email",
 		Description: "Partially update a board's email-to-card configuration. Board admins on Pro boards " +
 			"only - a downgraded (Free) board returns 402 here (disable_inbound_email stays open). " +
@@ -1504,7 +1504,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		return nil, addressResult{Address: *addr}, nil
 	})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "disable_inbound_email",
 		Description: "Turn off email-to-card for a board. Board admins only. Not plan-gated, so a downgraded workspace can still disable it.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args projectIDArgs) (*mcp.CallToolResult, okResult, error) {
@@ -1518,7 +1518,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type membersResult struct {
 		Members []Member `json:"members"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "list_members",
 		Description: "List workspace members with their roles and, where visible, which boards they can see.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, membersResult, error) {
@@ -1533,7 +1533,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		UserID string `json:"user_id" jsonschema:"the member's user UUID"`
 		Role   string `json:"role" jsonschema:"'admin' or 'member'"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "update_member_role",
 		Description: "Change a workspace member's role. Promoting to admin grants visibility of every " +
 			"board in the workspace.",
@@ -1550,7 +1550,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type userIDArgs struct {
 		UserID string `json:"user_id" jsonschema:"the member's user UUID"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "remove_member",
 		Description: "Remove someone from the workspace. They lose access to every board in it immediately.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args userIDArgs) (*mcp.CallToolResult, okResult, error) {
@@ -1563,7 +1563,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type invitationsResult struct {
 		Invitations []Invitation `json:"invitations"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "list_invitations",
 		Description: "List pending workspace invitations that haven't been accepted yet.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, invitationsResult, error) {
@@ -1582,7 +1582,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type invitationResult struct {
 		Invitation Invitation `json:"invitation"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "invite_member",
 		Description: "Invite someone to the workspace by email. If they already have an account the " +
 			"invitation is consumed immediately; otherwise it applies when they register. Board grants " +
@@ -1602,7 +1602,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type invitationIDArgs struct {
 		InvitationID string `json:"invitation_id" jsonschema:"invitation UUID"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "revoke_invitation",
 		Description: "Revoke a pending invitation. The link in their email stops working; you can invite them again later.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args invitationIDArgs) (*mcp.CallToolResult, okResult, error) {
@@ -1615,7 +1615,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type boardMembersResult struct {
 		Members []BoardMember `json:"members"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "list_board_members",
 		Description: "List who can see a specific board. Each row's 'source' says whether the access is " +
 			"an explicit grant or implied by their workspace role.",
@@ -1632,7 +1632,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		UserID    string `json:"user_id" jsonschema:"user UUID to grant"`
 		Role      string `json:"role" jsonschema:"'admin' (can manage the board) or 'contributor'"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "grant_board_access",
 		Description: "Give a workspace member access to a specific board, or change the role of an " +
 			"existing grant (calling it again with a different role updates the grant in place). Board " +
@@ -1652,7 +1652,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		ProjectID string `json:"project_id" jsonschema:"project UUID"`
 		UserID    string `json:"user_id" jsonschema:"user UUID whose grant to remove"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "revoke_board_access",
 		Description: "Remove someone's explicit grant on a board. Board admins, or the person removing their own access.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args revokeGrantArgs) (*mcp.CallToolResult, okResult, error) {
@@ -1670,7 +1670,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type commentResult struct {
 		Comment Comment `json:"comment"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "update_comment",
 		Description: "Edit a comment. Author only - editing someone else's returns 404.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args updateCommentArgs) (*mcp.CallToolResult, commentResult, error) {
@@ -1687,7 +1687,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type commentIDArgs struct {
 		CommentID string `json:"comment_id" jsonschema:"comment UUID"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "delete_comment",
 		Description: "Delete a comment. Allowed for its author, or a workspace owner/admin.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args commentIDArgs) (*mcp.CallToolResult, okResult, error) {
@@ -1701,7 +1701,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type attachmentIDArgs struct {
 		AttachmentID string `json:"attachment_id" jsonschema:"attachment UUID"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "delete_attachment",
 		Description: "Delete an attachment - both the metadata row and the stored bytes. There is no undo.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args attachmentIDArgs) (*mcp.CallToolResult, okResult, error) {
@@ -1716,7 +1716,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		CardID string `json:"card_id" jsonschema:"card UUID"`
 		Follow *bool  `json:"follow" jsonschema:"true to follow, false to unfollow"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "set_card_follow",
 		Description: "Follow or unfollow a card. Followers are notified when it moves or changes. " +
 			"Assigning a card follows it automatically, so this is mainly for watching someone else's work.",
@@ -1734,7 +1734,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type tagsResult struct {
 		Tags []string `json:"tags"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "list_tags",
 		Description: "List the distinct tags used on a board's cards, sorted, covering archived cards " +
 			"as well as live ones. Useful for picking an existing tag rather than inventing a near-" +
@@ -1752,7 +1752,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type milestonesResult struct {
 		Milestones []Milestone `json:"milestones"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "list_milestones",
 		Description: "List a board's milestones, earliest due date first.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args projectIDArgs) (*mcp.CallToolResult, milestonesResult, error) {
@@ -1771,7 +1771,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type milestoneResult struct {
 		Milestone Milestone `json:"milestone"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "add_milestone",
 		Description: "Add a milestone to a board. Board admins only (workspace owners/admins, or explicit board admins).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args addMilestoneArgs) (*mcp.CallToolResult, milestoneResult, error) {
@@ -1791,7 +1791,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		DueOn       string `json:"due_on,omitempty" jsonschema:"new due date as YYYY-MM-DD"`
 		Achieved    *bool  `json:"achieved,omitempty" jsonschema:"mark achieved or not. Setting true stamps achievedAt once; re-sending true keeps the original stamp"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "update_milestone",
 		Description: "Rename, re-date or mark a milestone achieved. Board admins only. Omitted fields are left unchanged.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args updateMilestoneArgs) (*mcp.CallToolResult, milestoneResult, error) {
@@ -1818,7 +1818,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type milestoneIDArgs struct {
 		MilestoneID string `json:"milestone_id" jsonschema:"milestone UUID"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "delete_milestone",
 		Description: "Delete a milestone. Board admins only.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args milestoneIDArgs) (*mcp.CallToolResult, okResult, error) {
@@ -1833,7 +1833,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		PublicToken string `json:"publicToken"`
 		URL         string `json:"url"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "enable_sharing",
 		Description: "Turn on read-only public sharing for a board and return the share token and URL. " +
 			"Anyone with the link can view the board without signing in; they cannot add, edit or move " +
@@ -1846,7 +1846,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		return nil, shareResult{PublicToken: token, URL: c.baseURL + "/share/" + token}, nil
 	})
 
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "disable_sharing",
 		Description: "Revoke a board's public link. Existing links stop working immediately, and " +
 			"re-enabling later mints a NEW token rather than restoring the old one.",
@@ -1869,7 +1869,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		Base64      string `json:"base64,omitempty"`
 		Note        string `json:"note,omitempty"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "get_avatar",
 		Description: "Fetch a user's avatar. Returns the URL plus the bytes base64-encoded (avatars cap " +
 			"at 5 MiB). When the user has never uploaded one this is NOT an error - it returns " +
@@ -1896,7 +1896,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	type meResult struct {
 		User json.RawMessage `json:"user"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "get_me",
 		Description: "Get the current authenticated user's profile (name, email, username). " +
 			"twoFactorEnabled says whether two-factor sign-in is on; it only affects signing in " +
