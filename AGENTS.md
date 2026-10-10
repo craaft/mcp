@@ -21,5 +21,6 @@ Check your text against VOICE.md before you hand it back.
 
 - The platform's API (`../platform/docs/openapi.yaml` and its handlers) is the source of truth for what a tool can promise.
 - `go vet ./...` and `go test ./...` must pass. The README's tool table must list every registered tool (a test checks it).
+- Register tools with `addTool`, not `mcp.AddTool`, and give each new tool an entry in `toolAnnotations` (`annotations.go`): a title plus read-only, additive or destructive. Registration panics without one.
 - Don't commit, push or open pull requests unless the person you're working for asks you to.
 - Never add AI attribution (co-author lines, "generated with" footers) to commits, PRs, code comments or files.
