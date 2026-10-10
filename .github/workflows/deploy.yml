@@ -1,8 +1,14 @@
 name: Deploy
 
+# Runs only after CI passes on a push to main, and builds the exact commit
+# CI tested, so a red build never reaches production. workflow_dispatch is
+# the manual way to ship main; the job refuses any other branch.
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
+  workflow_dispatch:
 
 # Required GitHub repo configuration (Settings → Secrets and variables → Actions → Variables):
 #   GCP_PROJECT          - GCP project id
@@ -19,15 +25,35 @@ permissions:
   contents: read
   id-token: write
 
+# Stop an in-flight deploy when a newer CI pass lands.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   deploy:
+    # Only a successful CI run for a push to main deploys. CI also runs on
+    # pull requests, including ones from a fork's own main branch, and
+    # those must never reach this job: workflow_run holds deploy credentials.
+    if: >-
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
 
     env:
       IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT }}/${{ vars.GCP_AR_REPO }}/craaft-mcp
+      # The commit to ship: the one CI tested, or main's head for a manual
+      # run. github.sha alone would be main's head at the time this starts,
+      # which may be newer than what CI passed.
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
 
       - name: Authenticate to Google Cloud
         id: auth
@@ -45,7 +71,7 @@ jobs:
 
       - name: Build image
         env:
-          SHA: ${{ github.sha }}
+          SHA: ${{ env.DEPLOY_SHA }}
           VERSION: ${{ github.ref_name }}
         run: |
           BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -59,7 +85,7 @@ jobs:
 
       - name: Push image
         run: |
-          docker push "${IMAGE}:${{ github.sha }}"
+          docker push "${IMAGE}:${DEPLOY_SHA}"
           docker push "${IMAGE}:latest"
 
       - name: Deploy to Cloud Run
@@ -67,7 +93,7 @@ jobs:
         with:
           service: ${{ vars.GCP_RUN_SERVICE }}
           region: ${{ vars.GCP_REGION }}
-          image: ${{ env.IMAGE }}:${{ github.sha }}
+          image: ${{ env.IMAGE }}:${{ env.DEPLOY_SHA }}
           env_vars: |-
             CRAAFT_BASE_URL=${{ vars.CRAAFT_BASE_URL || 'https://craaft.io' }}
 
