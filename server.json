@@ -1,0 +1,25 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.craaft/mcp",
+  "title": "craaft",
+  "description": "Read and update your craaft kanban boards: add and move cards, comment, and tick off checklists.",
+  "version": "1.0.2",
+  "websiteUrl": "https://craaft.io/mcp?utm_source=mcp-registry",
+  "repository": {
+    "url": "https://github.com/craaft/mcp",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://ai.craaft.io/mcp"
+    }
+  ],
+  "icons": [
+    {
+      "src": "https://craaft.io/icon-512.png",
+      "mimeType": "image/png",
+      "sizes": ["512x512"]
+    }
+  ]
+}
