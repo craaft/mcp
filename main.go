@@ -1429,19 +1429,22 @@ func registerTools(s *mcp.Server, c *Client) {
 		Enabled     bool            `json:"enabled"`
 		Address     *InboundAddress `json:"address,omitempty"`
 		AIAvailable bool            `json:"ai_available"`
+		AIUsage     *AIUsage        `json:"ai_usage,omitempty"`
 	}
 	addTool(s, &mcp.Tool{
 		Name: "get_inbound_email",
 		Description: "Get a board's email-to-card intake address. Board admins on Pro boards only. " +
 			"Returns enabled=false with no address when it has never been set up - that is not an error. " +
 			"Mail to the address becomes a card (subject -> title, body -> description) only when the " +
-			"sender is a workspace member and SPF/DKIM pass; everything else is dropped silently.",
+			"sender is a workspace member and SPF/DKIM pass; everything else is dropped silently. " +
+			"ai_usage is the workspace's AI cards this calendar month (UTC) against its plan's limit (50 on Pro); " +
+			"past the limit, email threads become standard cards until the month ends.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args projectIDArgs) (*mcp.CallToolResult, inboundEmailResult, error) {
-		enabled, aiAvailable, addr, err := c.GetInboundEmail(ctx, args.ProjectID)
+		in, err := c.GetInboundEmail(ctx, args.ProjectID)
 		if err != nil {
 			return nil, inboundEmailResult{}, err
 		}
-		return nil, inboundEmailResult{Enabled: enabled, Address: addr, AIAvailable: aiAvailable}, nil
+		return nil, inboundEmailResult{Enabled: in.Enabled, Address: in.Address, AIAvailable: in.AIAvailable, AIUsage: in.AIUsage}, nil
 	})
 
 	type addressResult struct {

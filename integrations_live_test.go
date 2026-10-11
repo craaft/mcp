@@ -126,14 +126,14 @@ func TestLiveIntegrations(t *testing.T) {
 	}
 
 	// email-to-card: get (disabled) -> enable -> update -> disable
-	enabled, _, addr, err := c.GetInboundEmail(ctx, proj.ID)
+	in, err := c.GetInboundEmail(ctx, proj.ID)
 	if err != nil {
 		t.Fatalf("GetInboundEmail: %v", err)
 	}
-	if enabled || addr != nil {
-		t.Errorf("GetInboundEmail before enabling = (%v, %+v), want (false, nil)", enabled, addr)
+	if in.Enabled || in.Address != nil {
+		t.Errorf("GetInboundEmail before enabling = (%v, %+v), want (false, nil)", in.Enabled, in.Address)
 	}
-	t.Logf("get_inbound_email     -> enabled=%v (not yet configured)", enabled)
+	t.Logf("get_inbound_email     -> enabled=%v (not yet configured), ai_usage=%+v", in.Enabled, in.AIUsage)
 
 	addr2, err := c.EnableInboundEmail(ctx, proj.ID, nil, nil)
 	if err != nil {
@@ -162,10 +162,11 @@ func TestLiveIntegrations(t *testing.T) {
 	if err := c.DisableInboundEmail(ctx, proj.ID); err != nil {
 		t.Fatalf("DisableInboundEmail: %v", err)
 	}
-	enabledAfter, _, _, err := c.GetInboundEmail(ctx, proj.ID)
+	inAfter, err := c.GetInboundEmail(ctx, proj.ID)
 	if err != nil {
 		t.Fatalf("GetInboundEmail(after disable): %v", err)
 	}
+	enabledAfter := inAfter.Enabled
 	t.Logf("disable_inbound_email -> enabled=%v", enabledAfter)
 	if enabledAfter {
 		t.Error("DisableInboundEmail did not take")

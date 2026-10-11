@@ -102,7 +102,7 @@ To revoke access later, go to Craaft **Settings > Connected apps**.
 | `create_webhook` | Register an outbound webhook (craaft signed / Slack / Discord) |
 | `update_webhook` | Pause/resume a webhook, or change its URL, format or event filter |
 | `delete_webhook` | Delete a webhook subscription |
-| `get_inbound_email` | A board's email-to-card intake address, if configured |
+| `get_inbound_email` | A board's email-to-card intake address, if configured, and the month's AI card usage |
 | `enable_inbound_email` | Turn on email-to-card and mint the intake address |
 | `update_inbound_email` | Change active state, target column, or rotate the token |
 | `disable_inbound_email` | Turn off email-to-card for a board |

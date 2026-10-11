@@ -429,20 +429,39 @@ func TestListWebhooksDecodesEnvelope(t *testing.T) {
 func TestGetInboundEmailDisabled(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"enabled": false, "address": nil, "aiAvailable": true})
+		_ = json.NewEncoder(w).Encode(map[string]any{"enabled": false, "address": nil, "aiAvailable": true,
+			"aiUsage": map[string]int{"used": 12, "limit": 50}})
 	}))
 	t.Cleanup(srv.Close)
 	c := NewClient(srv.URL, "cra_testtoken")
 
-	enabled, aiAvailable, addr, err := c.GetInboundEmail(context.Background(), "p1")
+	in, err := c.GetInboundEmail(context.Background(), "p1")
 	if err != nil {
 		t.Fatalf("GetInboundEmail: %v", err)
 	}
-	if enabled || addr != nil {
-		t.Errorf("GetInboundEmail = (%v, %+v), want (false, nil)", enabled, addr)
+	if in.Enabled || in.Address != nil {
+		t.Errorf("GetInboundEmail = (%v, %+v), want (false, nil)", in.Enabled, in.Address)
 	}
-	if !aiAvailable {
+	if !in.AIAvailable {
 		t.Errorf("aiAvailable = false, want true")
+	}
+	if in.AIUsage == nil || in.AIUsage.Used != 12 || in.AIUsage.Limit != 50 {
+		t.Errorf("aiUsage = %+v, want 12 of 50", in.AIUsage)
+	}
+}
+
+// A server that predates aiUsage leaves it nil rather than reporting 0 of 0.
+func TestGetInboundEmailWithoutAIUsage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"enabled": false, "address": nil, "aiAvailable": false})
+	}))
+	t.Cleanup(srv.Close)
+	in, err := NewClient(srv.URL, "cra_testtoken").GetInboundEmail(context.Background(), "p1")
+	if err != nil {
+		t.Fatalf("GetInboundEmail: %v", err)
+	}
+	if in.AIUsage != nil {
+		t.Errorf("aiUsage = %+v, want nil", in.AIUsage)
 	}
 }
 
