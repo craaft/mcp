@@ -24,10 +24,13 @@ The `PORT` env var is set automatically by Cloud Run.
 With `MCP_PUBLIC_URL` set, the server is an OAuth 2.1 protected resource: no
 token needs to be copied by hand.
 
+craaft is in the [Claude directory](https://claude.ai/directory/craaft):
+connect it from there and skip to step 3. Or add it as a custom connector:
+
 1. In Claude Desktop or claude.ai, go to **Settings > Connectors > Add custom
    connector**.
 2. Paste `https://ai.craaft.io/mcp`.
-3. Sign in to Craaft and approve the connection.
+3. Sign in to craaft and approve the connection.
 
 To revoke access later, go to Craaft **Settings > Connected apps**.
 
