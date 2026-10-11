@@ -52,6 +52,26 @@ To revoke access later, go to Craaft **Settings > Connected apps**.
 }
 ```
 
+## MCP registry
+
+craaft is listed in the official [MCP registry](https://registry.modelcontextprotocol.io)
+as `io.craaft/mcp`, described by `server.json`. craaft.io proves it owns the
+`io.craaft` namespace by serving a public key at
+`https://craaft.io/.well-known/mcp-registry-auth` (platform repo,
+`internal/server/mcpregistry.go`). The matching private key is not in this repo.
+
+To publish a change, raise `version` in `server.json` (a published version
+can't be changed or republished), then:
+
+```bash
+PRIVATE_KEY="$(openssl pkey -in ~/.config/craaft/mcp-registry-key.pem -noout -text | grep -A3 'priv:' | tail -n +2 | tr -d ' :\n')"
+mcp-publisher login http --domain craaft.io --private-key "$PRIVATE_KEY"
+mcp-publisher publish
+```
+
+Install `mcp-publisher` from the registry's
+[releases](https://github.com/modelcontextprotocol/registry/releases).
+
 ## Tools
 
 | Tool | Description |
