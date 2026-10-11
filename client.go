@@ -1661,23 +1661,36 @@ type InboundAddress struct {
 	CreatedAt    string  `json:"createdAt"`
 }
 
-// GetInboundEmail returns a board's inbound intake address, or (false, nil)
-// when email-to-card has never been enabled for it, plus whether the server
-// can write AI cards. Board admins on Pro boards only.
-func (c *Client) GetInboundEmail(ctx context.Context, projectID string) (enabled bool, aiAvailable bool, addr *InboundAddress, err error) {
+// AIUsage is a workspace's AI cards this calendar month (UTC) against its
+// plan's monthly limit (50 on Pro). Past the limit, email threads become
+// standard cards until the month ends.
+type AIUsage struct {
+	Used  int `json:"used"`
+	Limit int `json:"limit"`
+}
+
+// InboundEmail is a board's email-to-card state.
+type InboundEmail struct {
+	Enabled     bool            `json:"enabled"`
+	Address     *InboundAddress `json:"address"` // nil when email-to-card has never been enabled
+	AIAvailable bool            `json:"aiAvailable"`
+	AIUsage     *AIUsage        `json:"aiUsage"` // nil from servers that don't report it
+}
+
+// GetInboundEmail returns a board's inbound intake address (Enabled false and
+// no Address when email-to-card has never been enabled for it), whether the
+// server can write AI cards, and the workspace's AI card usage this month.
+// Board admins on Pro boards only.
+func (c *Client) GetInboundEmail(ctx context.Context, projectID string) (*InboundEmail, error) {
 	data, _, err := c.do(ctx, http.MethodGet, "/api/v1/projects/"+url.PathEscape(projectID)+"/inbound-email", nil)
 	if err != nil {
-		return false, false, nil, err
+		return nil, err
 	}
-	var resp struct {
-		Enabled     bool            `json:"enabled"`
-		Address     *InboundAddress `json:"address"`
-		AIAvailable bool            `json:"aiAvailable"`
-	}
+	var resp InboundEmail
 	if err := json.Unmarshal(data, &resp); err != nil {
-		return false, false, nil, fmt.Errorf("decode inbound email: %w", err)
+		return nil, fmt.Errorf("decode inbound email: %w", err)
 	}
-	return resp.Enabled, resp.AIAvailable, resp.Address, nil
+	return &resp, nil
 }
 
 // EnableInboundEmail mints a board's intake address. targetColumn is a
