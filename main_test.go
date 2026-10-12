@@ -273,10 +273,10 @@ func TestUpdateProjectSendsToggles(t *testing.T) {
 	})
 	res := callTool(t, toolSession(t, c), "update_project", map[string]any{
 		"project_id": "p1", "show_milestones": true, "show_archived": false, "show_files": true, "show_standup": false,
-		"text_color": "light", "background_color": "#112233",
+		"show_activity": true, "text_color": "light", "background_color": "#112233",
 	})
 	got, _ := json.Marshal(onlyCall(t, *calls, http.MethodPatch).Body)
-	const want = `{"backgroundColor":"#112233","showArchived":false,"showFiles":true,"showMilestones":true,"showStandup":false,"textColor":"light"}`
+	const want = `{"backgroundColor":"#112233","showActivity":true,"showArchived":false,"showFiles":true,"showMilestones":true,"showStandup":false,"textColor":"light"}`
 	if string(got) != want {
 		t.Errorf("body = %s, want %s", got, want)
 	}
@@ -332,6 +332,26 @@ func TestListNotificationsIncludesUnseenCount(t *testing.T) {
 		if !strings.Contains(string(out), want) {
 			t.Errorf("result missing %s: %s", want, out)
 		}
+	}
+}
+
+func TestGetBoardActivityPassesFiltersAndCursor(t *testing.T) {
+	c, calls := stubAPI(t, map[string]any{
+		"GET /api/v1/projects/p1/activity": map[string]any{
+			"items": []map[string]any{{"id": "e1", "type": "card_deleted", "actorName": "Priya",
+				"cardTitle": "Launch page", "createdAt": "2026-10-12T09:00:00Z"}},
+			"nextBefore": nil,
+		},
+	})
+	res := callTool(t, toolSession(t, c), "get_board_activity", map[string]any{
+		"project_id": "p1", "actor_id": "u1", "types": "card_deleted,moved", "limit": 20, "before": "2026-10-12T10:00:00Z_e9",
+	})
+	if want := "/api/v1/projects/p1/activity?actor=u1&before=2026-10-12T10%3A00%3A00Z_e9&limit=20&type=card_deleted%2Cmoved"; (*calls)[0].URI != want {
+		t.Errorf("URI = %q, want %q", (*calls)[0].URI, want)
+	}
+	out, _ := json.Marshal(res.StructuredContent)
+	if !strings.Contains(string(out), `"cardTitle":"Launch page"`) || strings.Contains(string(out), "nextBefore") {
+		t.Errorf("result = %s, want the entry and no nextBefore on the last page", out)
 	}
 }
 

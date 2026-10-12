@@ -735,6 +735,32 @@ func registerTools(s *mcp.Server, c *Client) {
 		return nil, activityResult{Events: events}, nil
 	})
 
+	// ── get_board_activity ────────────────────────────────────────
+	type boardActivityArgs struct {
+		ProjectID string `json:"project_id" jsonschema:"project UUID"`
+		ActorID   string `json:"actor_id,omitempty" jsonschema:"only changes made by this user (a user UUID from list_members)"`
+		Types     string `json:"types,omitempty" jsonschema:"comma-separated event types to keep: card_created, card_archived, card_restored, card_deleted, moved, moved_board, priority, assignee, comment, column_created, column_renamed, column_deleted"`
+		Limit     int    `json:"limit,omitempty" jsonschema:"max entries to return (default 50, max 100)"`
+		Before    string `json:"before,omitempty" jsonschema:"page cursor: the nextBefore value from the previous call"`
+	}
+	addTool(s, &mcp.Tool{
+		Name: "get_board_activity",
+		Description: "Get a board's activity feed, newest first: cards added, moved within or between " +
+			"boards, archived, restored or deleted; priority and assignee changes; comments (with a short " +
+			"excerpt); columns added, renamed or deleted. Use it to answer what happened on a board this " +
+			"week or who changed something. Each entry has type, actorName, cardTitle and createdAt. " +
+			"cardId is set only while the card is still on this board; deleted cards keep their title. " +
+			"Entries are kept 12 months. It answers whether or not the board shows its activity button. " +
+			"Pass nextBefore back as before for the next page; it is empty when there is nothing older. " +
+			"For one card's history use get_card_activity.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args boardActivityArgs) (*mcp.CallToolResult, BoardActivityPage, error) {
+		page, err := c.GetBoardActivity(ctx, args.ProjectID, args.ActorID, args.Types, args.Limit, args.Before)
+		if err != nil {
+			return nil, BoardActivityPage{}, err
+		}
+		return nil, *page, nil
+	})
+
 	// ── get_hygiene ───────────────────────────────────────────────
 	type hygieneArgs struct {
 		Category string `json:"category" jsonschema:"which counter to expand: ghosts (no due date, priority or assignee), stuck (untouched 14+ days), or mine_no_date (assigned to you with no due date)"`
@@ -954,12 +980,13 @@ func registerTools(s *mcp.Server, c *Client) {
 		ShowArchived     *bool  `json:"show_archived,omitempty" jsonschema:"show or hide the archived-cards button on the board's top bar"`
 		ShowFiles        *bool  `json:"show_files,omitempty" jsonschema:"show or hide the files button on the board's top bar"`
 		ShowStandup      *bool  `json:"show_standup,omitempty" jsonschema:"show or hide the standup button on the board's top bar"`
+		ShowActivity     *bool  `json:"show_activity,omitempty" jsonschema:"show or hide the activity button on the board's top bar (off by default)"`
 	}
 	addTool(s, &mcp.Tool{
 		Name: "update_project",
 		Description: "Partially update a board: name, description, favourite, visibility, colour scheme, " +
-			"background, text colour and which top-bar buttons (milestones, archived cards, files) it " +
-			"shows. Board admins only - anyone else gets 404. Omitted fields are left unchanged. A board " +
+			"background, text colour and which top-bar buttons (milestones, archived cards, files, standup, " +
+			"activity) it shows. Board admins only - anyone else gets 404. Omitted fields are left unchanged. A board " +
 			"has a background image or a background colour, never both: setting one clears the other.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args updateProjectArgs) (*mcp.CallToolResult, projectResult, error) {
 		patch := map[string]any{}
@@ -1007,6 +1034,9 @@ func registerTools(s *mcp.Server, c *Client) {
 		}
 		if args.ShowStandup != nil {
 			patch["showStandup"] = *args.ShowStandup
+		}
+		if args.ShowActivity != nil {
+			patch["showActivity"] = *args.ShowActivity
 		}
 		if len(patch) == 0 {
 			return nil, projectResult{}, fmt.Errorf("nothing to update")

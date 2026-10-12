@@ -162,12 +162,14 @@ type Project struct {
 	BackgroundColor string `json:"backgroundColor"`
 	ColorScheme     string `json:"colorScheme"`
 	TextColor       string `json:"textColor"`
-	// ShowMilestones / ShowArchived / ShowFiles are the board admin's toggles
-	// for the milestones, archived-cards and files buttons on the board's
-	// top bar.
+	// ShowMilestones / ShowArchived / ShowFiles / ShowStandup / ShowActivity
+	// are the board admin's toggles for the milestones, archived-cards,
+	// files, standup and activity buttons on the board's top bar.
 	ShowMilestones  bool           `json:"showMilestones"`
 	ShowArchived    bool           `json:"showArchived"`
 	ShowFiles       bool           `json:"showFiles"`
+	ShowStandup     bool           `json:"showStandup"`
+	ShowActivity    bool           `json:"showActivity"`
 	MyRole          string         `json:"myRole"`
 	Visibility      string         `json:"visibility"`
 	MyBoardRole     string         `json:"myBoardRole"`
@@ -774,6 +776,77 @@ func (c *Client) GetCardEvents(ctx context.Context, cardID string) ([]CardEvent,
 		return nil, fmt.Errorf("decode card events: %w", err)
 	}
 	return events, nil
+}
+
+// BoardActivity is one entry of a board's activity feed. Which fields are
+// set depends on Type; see GET /projects/{id}/activity in the OpenAPI spec.
+type BoardActivity struct {
+	ID             string  `json:"id"`
+	Type           string  `json:"type"`
+	FromValue      *string `json:"fromValue,omitempty"`
+	ToValue        *string `json:"toValue,omitempty"`
+	FromName       *string `json:"fromName,omitempty"`
+	ToName         *string `json:"toName,omitempty"`
+	FromDetail     *string `json:"fromDetail,omitempty"`
+	ToDetail       *string `json:"toDetail,omitempty"`
+	ActorID        *string `json:"actorId,omitempty"`
+	ActorName      *string `json:"actorName,omitempty"`
+	CardID         *string `json:"cardId,omitempty"`
+	CardTitle      *string `json:"cardTitle,omitempty"`
+	CardArchived   bool    `json:"cardArchived,omitempty"`
+	Excerpt        *string `json:"excerpt,omitempty"`
+	CommentDeleted bool    `json:"commentDeleted,omitempty"`
+	CreatedAt      string  `json:"createdAt"`
+}
+
+// BoardActivityPage is one page of a board's activity feed, newest first.
+// NextBefore is the cursor for the next (older) page, empty on the last one.
+type BoardActivityPage struct {
+	Items      []BoardActivity `json:"items"`
+	NextBefore string          `json:"nextBefore,omitempty"`
+}
+
+// GetBoardActivity returns one page of a board's activity feed. actorID and
+// types (comma-separated) narrow it; limit <= 0 leaves the server default
+// (50, max 100); before is the previous page's NextBefore.
+func (c *Client) GetBoardActivity(ctx context.Context, projectID, actorID, types string, limit int, before string) (*BoardActivityPage, error) {
+	q := url.Values{}
+	if actorID != "" {
+		q.Set("actor", actorID)
+	}
+	if types != "" {
+		q.Set("type", types)
+	}
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
+	}
+	if before != "" {
+		q.Set("before", before)
+	}
+	path := "/api/v1/projects/" + url.PathEscape(projectID) + "/activity"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	data, _, err := c.do(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	// nextBefore is null on the last page, which decodes to "".
+	var raw struct {
+		Items      []BoardActivity `json:"items"`
+		NextBefore *string         `json:"nextBefore"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("decode board activity: %w", err)
+	}
+	page := &BoardActivityPage{Items: raw.Items}
+	if page.Items == nil {
+		page.Items = []BoardActivity{}
+	}
+	if raw.NextBefore != nil {
+		page.NextBefore = *raw.NextBefore
+	}
+	return page, nil
 }
 
 // GetHygiene drills into one of the counters GetFocus reports. Category is
