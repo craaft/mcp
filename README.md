@@ -100,6 +100,7 @@ Install `mcp-publisher` from the registry's
 | `update_checklist_item` | Tick, untick or retitle a checklist item |
 | `delete_checklist_item` | Delete a checklist item |
 | `get_card_activity` | A card's activity log: column and board moves, priority and assignee changes |
+| `get_board_activity` | A board's activity feed, newest first: cards added, moved, archived, deleted, comments, column changes |
 | `get_hygiene` | The cards behind a `get_focus` hygiene counter (`ghosts`, `stuck`, `mine_no_date`) |
 | `list_attachments` | List the files attached to a card |
 | `list_board_files` | Search every file on a board's cards, with the card each is on |
@@ -263,8 +264,9 @@ period.
 
 `GET /projects/{id}/events` is the board's **SSE realtime stream**, not an
 activity log - a long-lived `text/event-stream` that doesn't fit a
-request/response tool. For per-card history use `get_card_activity`
-(`/cards/{id}/events`), which is a real activity log.
+request/response tool. For a board's history use `get_board_activity`
+(`/projects/{id}/activity`), and for one card's history `get_card_activity`
+(`/cards/{id}/events`).
 
 Also absent: `POST /projects/{id}/cards/rebalance` (internal position
 maintenance), the board background-image endpoints, and the unauthenticated
