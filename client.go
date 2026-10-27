@@ -1321,6 +1321,39 @@ func (c *Client) ListMembers(ctx context.Context) ([]Member, error) {
 	return out, nil
 }
 
+// Me is the caller's profile from GET /api/v1/me. The platform also returns
+// csrfToken, which a bearer-token caller has no use for, so it's left out.
+type Me struct {
+	ID                   string `json:"id"`
+	Email                string `json:"email"`
+	Name                 string `json:"name"`
+	Username             string `json:"username"`
+	AvatarURL            string `json:"avatarUrl"`
+	HasPassword          bool   `json:"hasPassword"`
+	EmailVerified        bool   `json:"emailVerified"`
+	PendingEmail         string `json:"pendingEmail,omitempty"`
+	TwoFactorEnabled     bool   `json:"twoFactorEnabled"`
+	NewsletterSubscribed bool   `json:"newsletterSubscribed"`
+	NewsletterAvailable  bool   `json:"newsletterAvailable"`
+	EmailNotifications   bool   `json:"emailNotifications"`
+	IsSuperAdmin         bool   `json:"isSuperAdmin"`
+}
+
+func (c *Client) GetMe(ctx context.Context) (*Me, error) {
+	data, _, err := c.do(ctx, http.MethodGet, "/api/v1/me", nil)
+	if err != nil {
+		return nil, err
+	}
+	var out *Me
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil, fmt.Errorf("decode me: %w", err)
+	}
+	if out == nil {
+		return nil, errors.New("not signed in: the token was not accepted")
+	}
+	return out, nil
+}
+
 func (c *Client) UpdateMemberRole(ctx context.Context, userID, role string) error {
 	_, _, err := c.do(ctx, http.MethodPatch, "/api/v1/members/"+url.PathEscape(userID),
 		map[string]any{"role": role})
