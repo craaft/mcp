@@ -503,6 +503,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		UnreadOnly bool   `json:"unread_only,omitempty" jsonschema:"set true to list only unread notifications"`
 		Limit      int    `json:"limit,omitempty" jsonschema:"max rows to fetch (default 30, max 50)"`
 		Before     string `json:"before,omitempty" jsonschema:"page cursor: the nextBefore value from the previous call"`
+		Kind       string `json:"kind,omitempty" jsonschema:"only this kind: mention, assigned, comment, moved or updated"`
 	}
 	type listNotificationsResult struct {
 		Notifications []Notification `json:"notifications"`
@@ -515,9 +516,12 @@ func registerTools(s *mcp.Server, c *Client) {
 			"moves and updates on cards you follow. Unread comment/moved/updated rows on the same card " +
 			"are merged into one row of kind 'group' whose ids, kinds and details list every member. " +
 			"Also returns the unseen badge count. Pass nextBefore back as before for the next page; " +
-			"it is empty when there is nothing older. Mark rows read with mark_notifications_read.",
+			"it is empty when there is nothing older. Mark rows read with mark_notifications_read. " +
+			"To list where you were mentioned, pass kind mention: each row has the card's id, projectId " +
+			"and projectName, details says card or comment, and a comment mention has commentId. " +
+			"Read rows are kept for 90 days and unread ones for 180, so older mentions aren't listed.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args listNotificationsArgs) (*mcp.CallToolResult, listNotificationsResult, error) {
-		items, next, err := c.ListNotifications(ctx, args.UnreadOnly, args.Limit, args.Before)
+		items, next, err := c.ListNotifications(ctx, args.UnreadOnly, args.Limit, args.Before, args.Kind)
 		if err != nil {
 			return nil, listNotificationsResult{}, err
 		}

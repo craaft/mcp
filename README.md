@@ -88,7 +88,7 @@ Install `mcp-publisher` from the registry's
 | `add_comment` | Add a comment to a card (supports @mentions) |
 | `get_comments` | List comments on a card |
 | `get_focus` | Get focus overview: due cards, attention cards, hygiene counters |
-| `list_notifications` | Your notification inbox, newest first, plus the unseen count |
+| `list_notifications` | Your notification inbox, newest first, plus the unseen count. Pass `kind: mention` to list where you were mentioned, with project, card and comment ids |
 | `mark_notifications_read` | Mark notifications read by id, by card, or all of them |
 | `get_me` | Get the authenticated user's profile |
 | `bulk_create_cards` | Create up to 100 cards in one transaction |

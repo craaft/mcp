@@ -335,6 +335,30 @@ func TestListNotificationsIncludesUnseenCount(t *testing.T) {
 	}
 }
 
+// kind mention is how an agent lists where the caller was mentioned: the
+// filter has to reach the API, and each row's ids have to come back.
+func TestListNotificationsFiltersByKind(t *testing.T) {
+	c, calls := stubAPI(t, map[string]any{
+		"GET /api/v1/me/notifications": map[string]any{
+			"items": []map[string]any{{"ids": []string{"n1"}, "kind": "mention", "kinds": []string{"mention"},
+				"details": []string{"comment"}, "count": 1, "commentId": "cm1",
+				"card": map[string]any{"id": "c1", "title": "T", "projectId": "p1", "projectName": "P"}}},
+			"nextBefore": nil,
+		},
+		"GET /api/v1/me/notifications/count": map[string]any{"unseen": 1},
+	})
+	res := callTool(t, toolSession(t, c), "list_notifications", map[string]any{"kind": "mention"})
+	if (*calls)[0].URI != "/api/v1/me/notifications?kind=mention" {
+		t.Errorf("list URI = %q", (*calls)[0].URI)
+	}
+	out, _ := json.Marshal(res.StructuredContent)
+	for _, want := range []string{`"commentId":"cm1"`, `"projectId":"p1"`, `"id":"c1"`, `"details":["comment"]`} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("result missing %s: %s", want, out)
+		}
+	}
+}
+
 func TestGetBoardActivityPassesFiltersAndCursor(t *testing.T) {
 	c, calls := stubAPI(t, map[string]any{
 		"GET /api/v1/projects/p1/activity": map[string]any{

@@ -1866,13 +1866,15 @@ type NotificationActor struct {
 // Notification is one inbox row. Kind is mention, assigned, comment, moved
 // or updated - or "group" when unread comment/moved/updated notifications
 // on one card were merged, in which case IDs, Kinds and Details carry every
-// member. Pass IDs to MarkNotificationsRead.
+// member. Pass IDs to MarkNotificationsRead. CommentID is the comment a
+// mention came from.
 type Notification struct {
 	IDs       []string            `json:"ids"`
 	Kind      string              `json:"kind"`
 	Kinds     []string            `json:"kinds"`
 	Details   []string            `json:"details"`
 	Card      NotificationCard    `json:"card"`
+	CommentID string              `json:"commentId,omitempty"`
 	Actors    []NotificationActor `json:"actors"`
 	Excerpt   string              `json:"excerpt,omitempty"`
 	Count     int                 `json:"count"`
@@ -1884,10 +1886,14 @@ type Notification struct {
 // ListNotifications returns the caller's inbox, newest first. limit <= 0
 // leaves the server default (30, max 50); before is the previous page's
 // nextBefore cursor, which is returned empty when there is nothing older.
-func (c *Client) ListNotifications(ctx context.Context, unreadOnly bool, limit int, before string) ([]Notification, string, error) {
+// A non-empty kind keeps only rows of that kind.
+func (c *Client) ListNotifications(ctx context.Context, unreadOnly bool, limit int, before, kind string) ([]Notification, string, error) {
 	q := url.Values{}
 	if unreadOnly {
 		q.Set("unread", "1")
+	}
+	if kind != "" {
+		q.Set("kind", kind)
 	}
 	if limit > 0 {
 		q.Set("limit", strconv.Itoa(limit))
