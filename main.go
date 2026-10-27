@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -11,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -48,7 +48,7 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	mcpHandler := mcp.NewStreamableHTTPHandler(getServer, nil)
+	mcpHandler := mcp.NewStreamableHTTPHandler(getServer, mcpHandlerOptions())
 	// Normalised the same way the platform compares MCP_RESOURCE_URL, so a
 	// trailing slash or an upper-case host on either side still matches.
 	publicURL := normalizeResource(os.Getenv("MCP_PUBLIC_URL"))
@@ -81,6 +81,18 @@ func main() {
 	addr := ":" + port
 	log.Printf("craaft-mcp %s (%s) listening on %s (upstream %s)", version, commit, addr, baseURL)
 	log.Fatal(http.ListenAndServe(addr, mux))
+}
+
+// sessionIdleTimeout closes a session that has had no request for this long.
+// Each session holds its own server and tool set (about 2 MiB), and most
+// clients go away without a DELETE, so without a timeout sessions pile up
+// until Cloud Run kills the instance for exceeding its memory limit, taking
+// every in-flight request down with a 503. A client whose session timed out
+// gets a 404 and starts a new one.
+const sessionIdleTimeout = 30 * time.Minute
+
+func mcpHandlerOptions() *mcp.StreamableHTTPOptions {
+	return &mcp.StreamableHTTPOptions{SessionTimeout: sessionIdleTimeout}
 }
 
 // normalizeResource canonicalises MCP_PUBLIC_URL: scheme and host
@@ -1933,7 +1945,7 @@ func registerTools(s *mcp.Server, c *Client) {
 
 	// ── me ────────────────────────────────────────────────────────
 	type meResult struct {
-		User json.RawMessage `json:"user"`
+		User *Me `json:"user"`
 	}
 	addTool(s, &mcp.Tool{
 		Name: "get_me",
@@ -1942,11 +1954,11 @@ func registerTools(s *mcp.Server, c *Client) {
 			"with a password in the browser. Tokens are unaffected, and two-factor, password and " +
 			"API key settings can only be changed in the browser, so point the user to Settings.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, meResult, error) {
-		data, _, err := c.do(ctx, "GET", "/api/v1/me", nil)
+		me, err := c.GetMe(ctx)
 		if err != nil {
 			return nil, meResult{}, err
 		}
-		return nil, meResult{User: data}, nil
+		return nil, meResult{User: me}, nil
 	})
 }
 
