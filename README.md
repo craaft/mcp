@@ -30,7 +30,20 @@ connect it from there and skip to step 3. Or add it as a custom connector:
 1. In Claude Desktop or claude.ai, go to **Settings > Connectors > Add custom
    connector**.
 2. Paste `https://ai.craaft.io/mcp`.
-3. Sign in to craaft and approve the connection.
+3. Sign in to craaft, choose **Read and write** or **Read only**, and approve
+   the connection.
+
+With read-only access, tools that only read (`list_projects`, `get_board`,
+`search_cards` and the like) work, and every tool that changes something
+fails with `this token is read-only; this request needs a token with read and
+write access`. The same goes for a `cra_` key created as read only.
+
+You can also connect it to **Chosen boards** only. Tools then see just those
+boards: other boards are not found, and `list_projects` and `search_cards`
+leave them out. `create_project`, `import_board`, `list_members`,
+`list_invitations` and the other member tools fail with `this token is limited
+to some boards; this request needs a token for all boards`. To change an app's
+access or boards, connect it again and choose again.
 
 To revoke access later, go to Craaft **Settings > Connected apps**.
 

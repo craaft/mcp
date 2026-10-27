@@ -17,7 +17,7 @@ func protectedResourceHandler(publicURL, authServer string) http.HandlerFunc {
 	body, _ := json.Marshal(map[string]any{
 		"resource":                 publicURL,
 		"authorization_servers":    []string{strings.TrimRight(authServer, "/")},
-		"scopes_supported":         []string{"craaft"},
+		"scopes_supported":         []string{"craaft", "craaft:read"},
 		"bearer_methods_supported": []string{"header"},
 		"resource_name":            "Craaft",
 	})
