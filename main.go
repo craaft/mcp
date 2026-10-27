@@ -503,7 +503,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		UnreadOnly bool   `json:"unread_only,omitempty" jsonschema:"set true to list only unread notifications"`
 		Limit      int    `json:"limit,omitempty" jsonschema:"max rows to fetch (default 30, max 50)"`
 		Before     string `json:"before,omitempty" jsonschema:"page cursor: the nextBefore value from the previous call"`
-		Kind       string `json:"kind,omitempty" jsonschema:"only this kind: mention, assigned, comment, moved or updated"`
+		Kind       string `json:"kind,omitempty" jsonschema:"only this kind: mention, assigned, comment, moved, updated or due (a due date reminder)"`
 	}
 	type listNotificationsResult struct {
 		Notifications []Notification `json:"notifications"`
