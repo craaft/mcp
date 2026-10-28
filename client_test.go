@@ -117,6 +117,28 @@ func TestGetCardDetailEscapesPathAndDecodes(t *testing.T) {
 	}
 }
 
+func TestGetCardPromptEscapesPathAndDecodes(t *testing.T) {
+	var seen string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = r.URL.RequestURI()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"cardId": "c1", "prompt": "# Hello\n"})
+	}))
+	t.Cleanup(srv.Close)
+	c := NewClient(srv.URL, "cra_testtoken")
+
+	p, err := c.GetCardPrompt(context.Background(), "../x")
+	if err != nil {
+		t.Fatalf("GetCardPrompt: %v", err)
+	}
+	if seen != "/api/v1/cards/..%2Fx/prompt" {
+		t.Errorf("sent %q, want escaped /prompt path", seen)
+	}
+	if p != "# Hello\n" {
+		t.Errorf("prompt = %q", p)
+	}
+}
+
 // A cross-board move carries board names in fromName/toName and column
 // titles in fromDetail/toDetail; a board the caller can't see has neither.
 func TestGetCardDetailDecodesBoardMove(t *testing.T) {

@@ -68,6 +68,7 @@ var toolAnnotations = map[string]*mcp.ToolAnnotations{
 	"search_cards":        readTool("Search cards"),
 	"get_card":            readTool("Get a card"),
 	"get_card_detail":     readTool("Get a card with its comments and history"),
+	"get_card_prompt":     readTool("Get a card as a prompt"),
 	"get_card_activity":   readTool("Get a card's activity"),
 	"get_board_activity":  readTool("Get a board's activity"),
 	"create_card":         additiveTool("Create a card", false),

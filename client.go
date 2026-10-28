@@ -582,6 +582,22 @@ func (c *Client) GetCardDetail(ctx context.Context, cardID string) (*CardDetail,
 	return &out, nil
 }
 
+// GetCardPrompt returns the card as a Markdown brief for an AI tool, the
+// same text as Copy as prompt in the web app.
+func (c *Client) GetCardPrompt(ctx context.Context, cardID string) (string, error) {
+	data, _, err := c.do(ctx, http.MethodGet, "/api/v1/cards/"+url.PathEscape(cardID)+"/prompt", nil)
+	if err != nil {
+		return "", err
+	}
+	var out struct {
+		Prompt string `json:"prompt"`
+	}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return "", fmt.Errorf("decode card prompt: %w", err)
+	}
+	return out.Prompt, nil
+}
+
 func (c *Client) UpdateCard(ctx context.Context, cardID string, patch map[string]any) (*Card, error) {
 	data, _, err := c.do(ctx, http.MethodPatch, "/api/v1/cards/"+url.PathEscape(cardID), patch)
 	if err != nil {

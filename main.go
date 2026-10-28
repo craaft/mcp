@@ -239,6 +239,24 @@ func registerTools(s *mcp.Server, c *Client) {
 		}, nil
 	})
 
+	// ── get_card_prompt ───────────────────────────────────────────
+	type getCardPromptResult struct {
+		Prompt string `json:"prompt"`
+	}
+	addTool(s, &mcp.Tool{
+		Name: "get_card_prompt",
+		Description: "Get a card as a ready-to-use Markdown brief: title, board, column, priority, due " +
+			"date, assignee, tags, the card link and ID, description, checklist, the 10 newest comments " +
+			"and attachment names. The same text a person gets from Copy as prompt in craaft. Use it " +
+			"to brief yourself or another agent on a card before working on it.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args getCardArgs) (*mcp.CallToolResult, getCardPromptResult, error) {
+		p, err := c.GetCardPrompt(ctx, args.CardID)
+		if err != nil {
+			return nil, getCardPromptResult{}, err
+		}
+		return nil, getCardPromptResult{Prompt: p}, nil
+	})
+
 	// ── create_card ───────────────────────────────────────────────
 	type createCardArgs struct {
 		ProjectID    string   `json:"project_id" jsonschema:"project UUID"`

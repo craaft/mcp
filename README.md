@@ -93,6 +93,7 @@ Install `mcp-publisher` from the registry's
 | `get_board` | Get a board's columns and cards (descriptions omitted) |
 | `get_card` | Get a single card by ID, including description |
 | `get_card_detail` | Card plus comments, events, checklist and attachments in one call |
+| `get_card_prompt` | Card as a Markdown brief for an AI tool, the same text as Copy as prompt |
 | `search_cards` | Cross-project card search (description is a ≤180-char snippet) |
 | `create_card` | Create a card at the bottom of a column, with optional metadata (assigned to you unless you name someone) |
 | `update_card` | Update a card's title, description, column, position, priority, assignee, tags, etc. |
