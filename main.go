@@ -157,7 +157,9 @@ func registerTools(s *mcp.Server, c *Client) {
 	}
 	addTool(s, &mcp.Tool{
 		Name: "get_board",
-		Description: "Get a Kanban board: its columns and every card with metadata (title, due date, " +
+		Description: "Get a Kanban board: its columns, its brief (project.brief: the board's goals, " +
+			"constraints, voice, decisions and links; read it before working on the board's cards) and " +
+			"every card with metadata (title, due date, " +
 			"assignee, priority, size, tags, checklist progress). Card descriptions are omitted — use " +
 			"get_card for the body, or get_card_detail for the body plus comments, events, checklist " +
 			"and attachments in one call.",
@@ -964,7 +966,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	}
 	addTool(s, &mcp.Tool{
 		Name:        "get_project",
-		Description: "Get one project with its columns, counts and your role on it, without loading every card.",
+		Description: "Get one project with its columns, counts, brief and your role on it, without loading every card.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args projectIDArgs) (*mcp.CallToolResult, projectResult, error) {
 		p, err := c.GetProject(ctx, args.ProjectID)
 		if err != nil {
@@ -1003,6 +1005,8 @@ func registerTools(s *mcp.Server, c *Client) {
 		Name             string `json:"name,omitempty" jsonschema:"new name"`
 		Description      string `json:"description,omitempty" jsonschema:"new description"`
 		ClearDescription bool   `json:"clear_description,omitempty" jsonschema:"set true to empty the description"`
+		Brief            string `json:"brief,omitempty" jsonschema:"new board brief in Markdown, up to 20,000 characters: goals, constraints, voice, decisions and links that agents read before working on the board. Replaces the whole brief"`
+		ClearBrief       bool   `json:"clear_brief,omitempty" jsonschema:"set true to empty the brief"`
 		IsFavorite       *bool  `json:"is_favorite,omitempty" jsonschema:"pin or unpin the board"`
 		Visibility       string `json:"visibility,omitempty" jsonschema:"'private' (explicit grants only) or 'workspace' (every workspace member is a contributor)"`
 		ColorScheme      string `json:"color_scheme,omitempty" jsonschema:"board colour scheme: default, midnight, ocean, forest, sunset or graphite"`
@@ -1014,13 +1018,13 @@ func registerTools(s *mcp.Server, c *Client) {
 		ShowArchived     *bool  `json:"show_archived,omitempty" jsonschema:"show or hide the archived-cards button on the board's top bar"`
 		ShowFiles        *bool  `json:"show_files,omitempty" jsonschema:"show or hide the files button on the board's top bar"`
 		ShowStandup      *bool  `json:"show_standup,omitempty" jsonschema:"show or hide the standup button on the board's top bar"`
-		ShowActivity     *bool  `json:"show_activity,omitempty" jsonschema:"show or hide the activity button on the board's top bar (off by default)"`
+		ShowActivity     *bool  `json:"show_activity,omitempty" jsonschema:"show or hide the activity button on the board's top bar"`
 	}
 	addTool(s, &mcp.Tool{
 		Name: "update_project",
-		Description: "Partially update a board: name, description, favourite, visibility, colour scheme, " +
+		Description: "Partially update a board: name, description, brief, favourite, visibility, colour scheme, " +
 			"background, text colour and which top-bar buttons (milestones, archived cards, files, standup, " +
-			"activity) it shows. Board admins only - anyone else gets 404. Omitted fields are left unchanged. A board " +
+			"activity) it shows; new boards start with all 5 buttons off. Board admins only - anyone else gets 404. Omitted fields are left unchanged. A board " +
 			"has a background image or a background colour, never both: setting one clears the other.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args updateProjectArgs) (*mcp.CallToolResult, projectResult, error) {
 		patch := map[string]any{}
@@ -1031,6 +1035,14 @@ func registerTools(s *mcp.Server, c *Client) {
 			patch["description"] = args.Description
 		} else if args.ClearDescription {
 			patch["description"] = ""
+		}
+		if args.Brief != "" {
+			if args.ClearBrief {
+				return nil, projectResult{}, fmt.Errorf("pass clear_brief or a brief, not both")
+			}
+			patch["brief"] = args.Brief
+		} else if args.ClearBrief {
+			patch["brief"] = ""
 		}
 		if args.IsFavorite != nil {
 			patch["isFavorite"] = *args.IsFavorite

@@ -152,10 +152,13 @@ func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte,
 }
 
 type Project struct {
-	ID              string `json:"id"`
-	WorkspaceID     string `json:"workspaceId"`
-	Name            string `json:"name"`
-	Description     string `json:"description"`
+	ID          string `json:"id"`
+	WorkspaceID string `json:"workspaceId"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	// Brief is the board brief (Markdown): goals, constraints, voice,
+	// decisions and links. Only single-board reads carry it.
+	Brief           string `json:"brief,omitempty"`
 	IsFavorite      bool   `json:"isFavorite"`
 	PublicToken     string `json:"publicToken"`
 	BackgroundImage string `json:"backgroundImage"`

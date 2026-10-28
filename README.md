@@ -90,7 +90,7 @@ Install `mcp-publisher` from the registry's
 | Tool | Description |
 |------|-------------|
 | `list_projects` | List all accessible Kanban projects |
-| `get_board` | Get a board's columns and cards (descriptions omitted) |
+| `get_board` | Get a board's brief, columns and cards (descriptions omitted) |
 | `get_card` | Get a single card by ID, including description |
 | `get_card_detail` | Card plus comments, events, checklist and attachments in one call |
 | `get_card_prompt` | Card as a Markdown brief for an AI tool, the same text as Copy as prompt |
@@ -121,9 +121,9 @@ Install `mcp-publisher` from the registry's
 | `download_attachment` | Fetch an attachment's bytes (text inline, binary base64) |
 | `upload_attachment` | Attach a file to a card from inline content |
 | `delete_attachment` | Delete an attachment and its stored bytes |
-| `get_project` | One project with columns, counts and your role |
+| `get_project` | One project with columns, counts, brief and your role |
 | `create_project` | Create a board, optionally from a template (starts with To Do / In Progress / Done otherwise) |
-| `update_project` | Rename, favourite, change visibility, colour scheme, background, text colour or top-bar buttons |
+| `update_project` | Rename, edit the brief, favourite, change visibility, colour scheme, background, text colour or top-bar buttons |
 | `delete_project` | Delete a board and everything in it |
 | `export_project` | Export a board as JSON or CSV |
 | `preview_import` | Dry run of an import: what board a Trello, Jira, Asana, CSV or craaft export would create |
