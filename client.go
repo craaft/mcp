@@ -243,6 +243,33 @@ type CardDetail struct {
 	Events      []CardEvent     `json:"events"`
 	Checklist   []ChecklistItem `json:"checklist"`
 	Attachments []Attachment    `json:"attachments"`
+	GitHub      *CardGitHub     `json:"github,omitempty"`
+}
+
+// CardGitHub is a card's GitHub links: the pull requests that name it
+// (kept current from GitHub) and branches made from it. Repo is the
+// board's connected repository, or null.
+type CardGitHub struct {
+	Repo         *string       `json:"repo"`
+	PullRequests []PullRequest `json:"pullRequests"`
+	Branches     []Branch      `json:"branches"`
+}
+
+type PullRequest struct {
+	Repo   string `json:"repo"`
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	URL    string `json:"url"`
+	State  string `json:"state" jsonschema:"open, closed or merged"`
+	Draft  bool   `json:"draft"`
+	Author string `json:"author"`
+	Branch string `json:"branch"`
+}
+
+type Branch struct {
+	Repo string `json:"repo"`
+	Name string `json:"name"`
+	URL  string `json:"url"`
 }
 
 // SearchResult is one GET /search hit. The openapi spec's CardSummary schema

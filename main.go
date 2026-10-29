@@ -224,11 +224,12 @@ func registerTools(s *mcp.Server, c *Client) {
 		Events      []CardEvent     `json:"events"`
 		Checklist   []ChecklistItem `json:"checklist"`
 		Attachments []Attachment    `json:"attachments"`
+		GitHub      *CardGitHub     `json:"github,omitempty"`
 	}
 	addTool(s, &mcp.Tool{
 		Name: "get_card_detail",
 		Description: "Get a card plus its comments, activity events (newest 100, oldest-first), " +
-			"checklist and attachments in one call. Prefer this over get_card + get_comments + " +
+			"checklist, attachments and GitHub pull requests and branches in one call. Prefer this over get_card + get_comments + " +
 			"get_card_activity + get_checklist + list_attachments — one authorised round-trip instead of five.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args getCardArgs) (*mcp.CallToolResult, getCardDetailResult, error) {
 		d, err := c.GetCardDetail(ctx, args.CardID)
@@ -237,7 +238,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		}
 		return nil, getCardDetailResult{
 			Card: d.Card, Comments: d.Comments, Events: d.Events,
-			Checklist: d.Checklist, Attachments: d.Attachments,
+			Checklist: d.Checklist, Attachments: d.Attachments, GitHub: d.GitHub,
 		}, nil
 	})
 
