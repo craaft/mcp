@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -32,23 +34,10 @@ func main() {
 		port = "8080"
 	}
 
-	getServer := func(r *http.Request) *mcp.Server {
-		token := extractToken(r)
-		if token == "" {
-			return nil
-		}
-		client := NewClient(baseURL, token)
-		s := mcp.NewServer(&mcp.Implementation{
-			Name:    "craaft-mcp",
-			Version: version,
-		}, nil)
-		registerTools(s, client)
-		return s
-	}
+	mcpHandler := mcp.NewStreamableHTTPHandler(newServerGetter(baseURL), mcpHandlerOptions())
 
 	mux := http.NewServeMux()
 
-	mcpHandler := mcp.NewStreamableHTTPHandler(getServer, mcpHandlerOptions())
 	// Normalised the same way the platform compares MCP_RESOURCE_URL, so a
 	// trailing slash or an upper-case host on either side still matches.
 	publicURL := normalizeResource(os.Getenv("MCP_PUBLIC_URL"))
@@ -80,11 +69,78 @@ func main() {
 
 	addr := ":" + port
 	log.Printf("craaft-mcp %s (%s) listening on %s (upstream %s)", version, commit, addr, baseURL)
-	log.Fatal(http.ListenAndServe(addr, mux))
+
+	if err := serve(addr, mux); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// serve runs the server until SIGINT or SIGTERM, then gives in-flight
+// requests shutdownTimeout to finish.
+func serve(addr string, h http.Handler) error {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	return runServer(ctx, newHTTPServer(addr, h), shutdownTimeout)
+}
+
+const (
+	// readHeaderTimeout stops a client holding a connection open with a
+	// slow or unfinished request header. There is no write timeout: MCP
+	// responses can stream for as long as a tool call runs.
+	readHeaderTimeout = 10 * time.Second
+	idleTimeout       = 2 * time.Minute
+	shutdownTimeout   = 10 * time.Second
+)
+
+func newHTTPServer(addr string, h http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           h,
+		ReadHeaderTimeout: readHeaderTimeout,
+		IdleTimeout:       idleTimeout,
+	}
+}
+
+// runServer serves until ctx is cancelled, then shuts down gracefully within
+// the budget.
+func runServer(ctx context.Context, srv *http.Server, budget time.Duration) error {
+	errc := make(chan error, 1)
+	go func() { errc <- srv.ListenAndServe() }()
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+	}
+	log.Printf("shutting down")
+	sctx, cancel := context.WithTimeout(context.Background(), budget)
+	defer cancel()
+	if err := srv.Shutdown(sctx); err != nil {
+		return fmt.Errorf("shutdown: %w", err)
+	}
+	return nil
+}
+
+// newServerGetter returns the getServer func for the streamable handler. The
+// SDK calls it on every HTTP request, including ones on an existing session,
+// so it builds the server and its 75 tools once and hands the same one back.
+// Tools take the bearer token from the request they are called on (see
+// withRequestToken), so nothing about a caller is captured here.
+func newServerGetter(baseURL string) func(*http.Request) *mcp.Server {
+	s := mcp.NewServer(&mcp.Implementation{
+		Name:    "craaft-mcp",
+		Version: version,
+	}, nil)
+	registerTools(s, NewClient(baseURL, ""))
+	return func(r *http.Request) *mcp.Server {
+		if extractToken(r) == "" {
+			return nil
+		}
+		return s
+	}
 }
 
 // sessionIdleTimeout closes a session that has had no request for this long.
-// Each session holds its own server and tool set (about 2 MiB), and most
+// Each session holds its own transport and state, and most
 // clients go away without a DELETE, so without a timeout sessions pile up
 // until Cloud Run kills the instance for exceeding its memory limit, taking
 // every in-flight request down with a 503. A client whose session timed out

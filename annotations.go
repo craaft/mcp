@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -141,5 +142,19 @@ func addTool[In, Out any](s *mcp.Server, t *mcp.Tool, h mcp.ToolHandlerFor[In, O
 	ann := *a
 	t.Annotations = &ann
 	t.Title = ann.Title
-	mcp.AddTool(s, t, h)
+	mcp.AddTool(s, t, withRequestToken(h))
+}
+
+// withRequestToken runs h with the bearer token of the request that carried
+// this tool call, taken from the SDK's per-request TokenInfo. Tools then call
+// upstream as that caller, whatever token the session started with.
+func withRequestToken[In, Out any](h mcp.ToolHandlerFor[In, Out]) mcp.ToolHandlerFor[In, Out] {
+	return func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, Out, error) {
+		if req != nil && req.Extra != nil && req.Extra.TokenInfo != nil {
+			if tok, _ := req.Extra.TokenInfo.Extra[tokenExtraKey].(string); tok != "" {
+				ctx = withToken(ctx, tok)
+			}
+		}
+		return h(ctx, req, in)
+	}
 }

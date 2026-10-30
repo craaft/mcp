@@ -28,20 +28,29 @@ type Client struct {
 	baseURL string
 	token   string
 	http    *http.Client
+	// httpLong has the longer timeout used for file uploads and downloads.
+	httpLong *http.Client
 	// sleep waits between rate-limit retries; tests swap it to stay fast.
 	sleep func(ctx context.Context, d time.Duration) error
 }
 
 func NewClient(baseURL, token string) *Client {
 	return &Client{
-		baseURL: strings.TrimRight(baseURL, "/"),
-		token:   token,
-		http:    &http.Client{},
-		sleep:   sleepCtx,
+		baseURL:  strings.TrimRight(baseURL, "/"),
+		token:    token,
+		http:     &http.Client{Timeout: requestTimeout},
+		httpLong: &http.Client{Timeout: transferTimeout},
+		sleep:    sleepCtx,
 	}
 }
 
 const (
+	// requestTimeout bounds one upstream API call (each rate-limit retry
+	// gets its own).
+	requestTimeout = 30 * time.Second
+	// transferTimeout bounds attachment uploads and downloads and board
+	// imports, which move more bytes.
+	transferTimeout = 2 * time.Minute
 	// maxRateLimitRetries is how many times a 429 is retried before the 429
 	// is handed back to the caller.
 	maxRateLimitRetries = 3
@@ -79,9 +88,18 @@ func retryAfter(h http.Header) time.Duration {
 // retries are spent, or when the wait would pass the context deadline, the
 // last 429 response is returned for the caller's normal error handling.
 func (c *Client) send(req *http.Request) (*http.Response, error) {
+	return c.sendVia(c.http, req)
+}
+
+// sendLong is send with the longer transfer timeout.
+func (c *Client) sendLong(req *http.Request) (*http.Response, error) {
+	return c.sendVia(c.httpLong, req)
+}
+
+func (c *Client) sendVia(hc *http.Client, req *http.Request) (*http.Response, error) {
 	ctx := req.Context()
 	for attempt := 0; ; attempt++ {
-		resp, err := c.http.Do(req)
+		resp, err := hc.Do(req)
 		if err != nil || resp.StatusCode != http.StatusTooManyRequests || attempt >= maxRateLimitRetries {
 			return resp, err
 		}
@@ -122,7 +140,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte,
 	if err != nil {
 		return nil, 0, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Authorization", "Bearer "+c.bearer(ctx))
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -933,8 +951,8 @@ func (c *Client) DownloadAttachment(ctx context.Context, attachmentID string) ([
 	if err != nil {
 		return nil, "", fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	resp, err := c.send(req)
+	req.Header.Set("Authorization", "Bearer "+c.bearer(ctx))
+	resp, err := c.sendLong(req)
 	if err != nil {
 		return nil, "", fmt.Errorf("execute request: %w", err)
 	}
@@ -1045,10 +1063,10 @@ func (c *Client) UploadAttachment(ctx context.Context, cardID, filename, content
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Authorization", "Bearer "+c.bearer(ctx))
 	req.Header.Set("Content-Type", w.FormDataContentType())
 
-	resp, err := c.send(req)
+	resp, err := c.sendLong(req)
 	if err != nil {
 		return nil, fmt.Errorf("execute request: %w", err)
 	}
@@ -1271,10 +1289,10 @@ func (c *Client) importCall(ctx context.Context, path string, in ImportRequest) 
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Authorization", "Bearer "+c.bearer(ctx))
 	req.Header.Set("Content-Type", w.FormDataContentType())
 
-	resp, err := c.send(req)
+	resp, err := c.sendLong(req)
 	if err != nil {
 		return nil, fmt.Errorf("execute request: %w", err)
 	}
@@ -2030,7 +2048,7 @@ func (c *Client) GetAvatar(ctx context.Context, userID string) ([]byte, string, 
 	if err != nil {
 		return nil, "", fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Authorization", "Bearer "+c.bearer(ctx))
 	resp, err := c.send(req)
 	if err != nil {
 		return nil, "", fmt.Errorf("execute request: %w", err)
@@ -2047,4 +2065,22 @@ func (c *Client) GetAvatar(ctx context.Context, userID string) ([]byte, string, 
 		return nil, "", fmt.Errorf("HTTP %d fetching avatar", resp.StatusCode)
 	}
 	return data, resp.Header.Get("Content-Type"), nil
+}
+
+type tokenCtxKey struct{}
+
+// withToken returns ctx carrying the bearer token of the request being served.
+func withToken(ctx context.Context, token string) context.Context {
+	return context.WithValue(ctx, tokenCtxKey{}, token)
+}
+
+// bearer picks the token for an upstream call: the one on ctx (the current
+// request's), else the one the client was built with. The server shares one
+// Client across all sessions, so the context token is what keeps a call on
+// the caller's own credentials, and a refreshed token takes effect at once.
+func (c *Client) bearer(ctx context.Context) string {
+	if t, ok := ctx.Value(tokenCtxKey{}).(string); ok && t != "" {
+		return t
+	}
+	return c.token
 }
