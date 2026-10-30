@@ -177,7 +177,7 @@ looping the single-card tools.
 | Path | Purpose |
 |------|---------|
 | `POST /mcp` | MCP Streamable HTTP endpoint |
-| `GET /healthz` | Health check (returns `{"status":"ok"}`) |
+| `GET /health` | Health check (returns `{"status":"ok"}`). `/healthz` answers the same locally, but Cloud Run keeps that path for itself |
 | `GET /.well-known/oauth-protected-resource`, `GET /.well-known/oauth-protected-resource/mcp` | RFC 9728 protected-resource metadata (only served when `MCP_PUBLIC_URL` is set) |
 
 ## Env vars

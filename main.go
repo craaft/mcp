@@ -57,10 +57,14 @@ func main() {
 		log.Printf("oauth: disabled (MCP_PUBLIC_URL unset)")
 	}
 
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+	health := func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, `{"status":"ok"}`)
-	})
+	}
+	mux.HandleFunc("/healthz", health)
+	// Cloud Run's front end answers /healthz itself and never passes it on,
+	// so outside checks use /health.
+	mux.HandleFunc("/health", health)
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
