@@ -140,10 +140,12 @@ Install `mcp-publisher` from the registry's
 | `create_webhook` | Register an outbound webhook (craaft signed / Slack / Discord) |
 | `update_webhook` | Pause/resume a webhook, or change its URL, format or event filter |
 | `delete_webhook` | Delete a webhook subscription |
-| `get_inbound_email` | A board's email-to-card intake address, if configured, and the month's AI card usage |
+| `get_inbound_email` | A board's email-to-card intake address, if configured, its allowed senders, senders turned away in the last 7 days, Gmail forwarding confirmations and the month's AI card usage |
 | `enable_inbound_email` | Turn on email-to-card and mint the intake address |
-| `update_inbound_email` | Change active state, target column, or rotate the token |
+| `update_inbound_email` | Change active state, target column, AI settings and instructions, or rotate the token |
 | `disable_inbound_email` | Turn off email-to-card for a board |
+| `add_inbound_sender` | Let an address, or a whole @domain, email cards to a board |
+| `remove_inbound_sender` | Remove an allowed sender |
 | `list_members` | Workspace members, roles and board access |
 | `update_member_role` | Change a member's workspace role |
 | `remove_member` | Remove someone from the workspace |
@@ -269,8 +271,13 @@ carries.
 
 Email-to-card mints one intake address per board
 (`<token>@<inbound-domain>`). Mail becomes a card only when the sender is a
-workspace member and SPF/DKIM pass; everything else is dropped silently, no
-error surfaces to the sender. `update_inbound_email`'s `rotate` flag mints a
+board member or an allowed sender and SPF, DKIM and DMARC pass. Everything
+else is dropped and no error reaches the sender; `get_inbound_email` lists
+the senders turned away in the last 7 days and why. `add_inbound_sender`
+allows an exact address or a whole `@domain` (not a free email provider such
+as `@gmail.com`), up to 50 per board. Cards from an allowed sender are created
+as the admin who added it, and allowed senders can make up to 200 cards a day
+per board. `remove_inbound_sender` is not plan-gated. `update_inbound_email`'s `rotate` flag mints a
 new token and invalidates the old address immediately - there's no grace
 period.
 

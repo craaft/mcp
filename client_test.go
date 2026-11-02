@@ -487,6 +487,72 @@ func TestGetInboundEmailWithoutAIUsage(t *testing.T) {
 	}
 }
 
+// The sender lists decode, and a deleted owner arrives as a nil AddedBy.
+func TestGetInboundEmailDecodesSenders(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"enabled": true, "aiAvailable": true,
+			"address":                 map[string]any{"email": "t@in.craaft.io", "aiAlways": true, "aiInstructions": "Be brief"},
+			"senders":                 []map[string]any{{"id": "s1", "pattern": "@acme.test", "addedBy": nil, "needsOwner": true}},
+			"turnedAway":              []map[string]any{{"from": "x@y.test", "reason": "daily_limit", "count": 4}},
+			"forwardingConfirmations": []map[string]any{{"requestedBy": "me@gmail.com", "code": "42"}},
+		})
+	}))
+	t.Cleanup(srv.Close)
+	in, err := NewClient(srv.URL, "cra_testtoken").GetInboundEmail(context.Background(), "p1")
+	if err != nil {
+		t.Fatalf("GetInboundEmail: %v", err)
+	}
+	if !in.Address.AIAlways || in.Address.AIInstructions != "Be brief" {
+		t.Errorf("address = %+v, want aiAlways and instructions", in.Address)
+	}
+	if len(in.Senders) != 1 || in.Senders[0].AddedBy != nil || !in.Senders[0].NeedsOwner {
+		t.Errorf("senders = %+v", in.Senders)
+	}
+	if len(in.TurnedAway) != 1 || in.TurnedAway[0].Reason != "daily_limit" || in.TurnedAway[0].Count != 4 {
+		t.Errorf("turnedAway = %+v", in.TurnedAway)
+	}
+	if len(in.ForwardingConfirmations) != 1 || in.ForwardingConfirmations[0].Code != "42" {
+		t.Errorf("forwardingConfirmations = %+v", in.ForwardingConfirmations)
+	}
+}
+
+func TestAddAndRemoveInboundSender(t *testing.T) {
+	var method, path string
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		method, path = r.Method, r.URL.Path
+		body = nil
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if r.Method == http.MethodDelete {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "s1", "pattern": "a@b.test", "needsOwner": false})
+	}))
+	t.Cleanup(srv.Close)
+	c := NewClient(srv.URL, "cra_testtoken")
+
+	snd, err := c.AddInboundSender(context.Background(), "p1", "a@b.test")
+	if err != nil {
+		t.Fatalf("AddInboundSender: %v", err)
+	}
+	if method != http.MethodPost || path != "/api/v1/projects/p1/inbound-email/senders" || body["pattern"] != "a@b.test" {
+		t.Errorf("add sent %s %s %v", method, path, body)
+	}
+	if snd.ID != "s1" || snd.Pattern != "a@b.test" {
+		t.Errorf("sender = %+v", snd)
+	}
+
+	if err := c.RemoveInboundSender(context.Background(), "p1", "s1"); err != nil {
+		t.Fatalf("RemoveInboundSender: %v", err)
+	}
+	if method != http.MethodDelete || path != "/api/v1/projects/p1/inbound-email/senders/s1" {
+		t.Errorf("remove sent %s %s", method, path)
+	}
+}
+
 // A nil targetColumn must be omitted from the request body entirely (the
 // server defaults to the board's first column); a non-nil one must ride
 // along even when it points at an empty string.

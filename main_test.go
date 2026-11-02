@@ -424,3 +424,108 @@ func TestEveryToolIsAnnotated(t *testing.T) {
 		}
 	}
 }
+
+// get_inbound_email passes the allowed senders, the turned-away log and Gmail
+// forwarding confirmations through, alongside the new AI fields.
+func TestGetInboundEmailReturnsSendersAndTurnedAway(t *testing.T) {
+	c, _ := stubAPI(t, map[string]any{
+		"GET /api/v1/projects/p1/inbound-email": map[string]any{
+			"enabled": true, "aiAvailable": true, "aiUsage": map[string]int{"used": 3, "limit": 50},
+			"address": map[string]any{"email": "t@in.craaft.io", "token": "t", "targetColumn": nil, "active": true,
+				"aiEnrich": true, "aiAlways": true, "aiInstructions": "Keep titles short", "createdAt": "2026-11-01T00:00:00Z"},
+			"senders": []map[string]any{
+				{"id": "s1", "pattern": "@stripe.com", "addedBy": map[string]any{"id": "u1", "name": "Sean"}, "needsOwner": false, "createdAt": "2026-11-01T00:00:00Z"},
+				{"id": "s2", "pattern": "bills@acme.test", "addedBy": nil, "needsOwner": true, "createdAt": "2026-11-01T00:00:00Z"},
+			},
+			"turnedAway": []map[string]any{{"from": "x@y.test", "reason": "not_member", "count": 2, "lastSeen": "2026-11-02T00:00:00Z"}},
+			"forwardingConfirmations": []map[string]any{{"requestedBy": "me@gmail.com", "code": "123456",
+				"link": "https://mail.google.com/confirm", "receivedAt": "2026-11-02T00:00:00Z"}},
+		},
+	})
+	res := callTool(t, toolSession(t, c), "get_inbound_email", map[string]any{"project_id": "p1"})
+	out, _ := json.Marshal(res.StructuredContent)
+	for _, want := range []string{
+		`"aiAlways":true`, `"aiInstructions":"Keep titles short"`,
+		`"pattern":"@stripe.com"`, `"needsOwner":true`, `"addedBy":null`,
+		`"turned_away":[{"count":2,"from":"x@y.test","lastSeen":"2026-11-02T00:00:00Z","reason":"not_member"}]`,
+		`"forwarding_confirmations":[{"code":"123456","link":"https://mail.google.com/confirm"`,
+	} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("result is missing %s: %s", want, out)
+		}
+	}
+}
+
+func TestUpdateInboundEmailSendsAIFields(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args map[string]any
+		want string
+	}{
+		{"always and instructions", map[string]any{"project_id": "p1", "ai_always": false, "ai_instructions": "Tag invoices"},
+			`{"aiAlways":false,"aiInstructions":"Tag invoices"}`},
+		{"clear instructions", map[string]any{"project_id": "p1", "clear_ai_instructions": true},
+			`{"aiInstructions":""}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, calls := stubAPI(t, map[string]any{
+				"PATCH /api/v1/projects/p1/inbound-email": map[string]any{"email": "t@in.craaft.io", "token": "t", "active": true},
+			})
+			callTool(t, toolSession(t, c), "update_inbound_email", tc.args)
+			got, _ := json.Marshal(onlyCall(t, *calls, http.MethodPatch).Body)
+			if string(got) != tc.want {
+				t.Errorf("body = %s, want %s", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAddInboundSender(t *testing.T) {
+	c, calls := stubAPI(t, map[string]any{
+		"POST /api/v1/projects/p1/inbound-email/senders": func(w http.ResponseWriter) {
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "s1", "pattern": "@stripe.com",
+				"addedBy": map[string]any{"id": "u1", "name": "Sean"}, "needsOwner": false, "createdAt": "2026-11-02T00:00:00Z"})
+		},
+	})
+	res := callTool(t, toolSession(t, c), "add_inbound_sender", map[string]any{"project_id": "p1", "pattern": " @stripe.com "})
+	call := onlyCall(t, *calls, http.MethodPost)
+	if call.Body["pattern"] != "@stripe.com" || len(call.Body) != 1 {
+		t.Errorf("body = %v, want {pattern: @stripe.com}", call.Body)
+	}
+	out, _ := json.Marshal(res.StructuredContent)
+	if !strings.Contains(string(out), `"id":"s1","needsOwner":false,"pattern":"@stripe.com"`) {
+		t.Errorf("result = %s", out)
+	}
+}
+
+// A 409 from the platform comes back as a tool error, not a success.
+func TestAddInboundSenderConflictIsAnError(t *testing.T) {
+	c, _ := stubAPI(t, map[string]any{
+		"POST /api/v1/projects/p1/inbound-email/senders": func(w http.ResponseWriter) {
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": "already allowed"})
+		},
+	})
+	res, err := toolSession(t, c).CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "add_inbound_sender", Arguments: map[string]any{"project_id": "p1", "pattern": "a@b.test"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError {
+		t.Errorf("409 should be a tool error, got %+v", res.Content)
+	}
+}
+
+func TestRemoveInboundSender(t *testing.T) {
+	c, calls := stubAPI(t, map[string]any{
+		"DELETE /api/v1/projects/p1/inbound-email/senders/s1": func(w http.ResponseWriter) {
+			w.WriteHeader(http.StatusNoContent)
+		},
+	})
+	callTool(t, toolSession(t, c), "remove_inbound_sender", map[string]any{"project_id": "p1", "sender_id": "s1"})
+	call := onlyCall(t, *calls, http.MethodDelete)
+	if call.URI != "/api/v1/projects/p1/inbound-email/senders/s1" || call.HasBody {
+		t.Errorf("delete call = %+v", call)
+	}
+}

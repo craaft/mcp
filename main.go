@@ -126,7 +126,7 @@ func runServer(ctx context.Context, srv *http.Server, budget time.Duration) erro
 
 // newServerGetter returns the getServer func for the streamable handler. The
 // SDK calls it on every HTTP request, including ones on an existing session,
-// so it builds the server and its 75 tools once and hands the same one back.
+// so it builds the server and its 77 tools once and hands the same one back.
 // Tools take the bearer token from the request they are called on (see
 // withRequestToken), so nothing about a caller is captured here.
 func newServerGetter(baseURL string) func(*http.Request) *mcp.Server {
@@ -1579,17 +1579,29 @@ func registerTools(s *mcp.Server, c *Client) {
 
 	// ── email-to-card (inbound email) ─────────────────────────────────
 	type inboundEmailResult struct {
-		Enabled     bool            `json:"enabled"`
-		Address     *InboundAddress `json:"address,omitempty"`
-		AIAvailable bool            `json:"ai_available"`
-		AIUsage     *AIUsage        `json:"ai_usage,omitempty"`
+		Enabled                 bool                            `json:"enabled"`
+		Address                 *InboundAddress                 `json:"address,omitempty"`
+		AIAvailable             bool                            `json:"ai_available"`
+		AIUsage                 *AIUsage                        `json:"ai_usage,omitempty"`
+		Senders                 []InboundSender                 `json:"senders,omitempty"`
+		TurnedAway              []InboundTurnedAway             `json:"turned_away,omitempty"`
+		ForwardingConfirmations []InboundForwardingConfirmation `json:"forwarding_confirmations,omitempty"`
 	}
 	addTool(s, &mcp.Tool{
 		Name: "get_inbound_email",
 		Description: "Get a board's email-to-card intake address. Board admins on Pro boards only. " +
-			"Returns enabled=false with no address when it has never been set up - that is not an error. " +
-			"Mail to the address becomes a card (subject -> title, body -> description) only when the " +
-			"sender is a workspace member and SPF/DKIM pass; everything else is dropped silently. " +
+			"Returns enabled=false with no address when it has never been set up. That is not an error. " +
+			"Mail to the address becomes a card (subject to title, body to description) when the sender is a " +
+			"board member or an allowed sender and SPF, DKIM and DMARC pass. Anything else is dropped, and no error reaches the sender. " +
+			"address.aiAlways means every email is written up with AI, not only forwarded threads and long emails; " +
+			"address.aiInstructions are the board admins' own instructions sent with the AI prompt. " +
+			"senders lists the allowed senders (an exact address, or @domain for a whole domain); cards from one are created " +
+			"as the admin who added it (addedBy), and needsOwner=true means that person is gone or can no longer open the board, " +
+			"so its mail is turned away until someone adds it again. " +
+			"turned_away lists senders dropped in the last 7 days with a reason code (not_member, no_board_access, unverified, " +
+			"allowed_sender_no_owner, daily_limit, inactive, not_pro). " +
+			"forwarding_confirmations lists Gmail forwarding confirmation requests received in the last 7 days, with the code and link, " +
+			"shown here instead of becoming a card. " +
 			"ai_usage is the workspace's AI cards this calendar month (UTC) against its plan's limit (50 on Pro); " +
 			"past the limit, email threads become standard cards until the month ends.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args projectIDArgs) (*mcp.CallToolResult, inboundEmailResult, error) {
@@ -1597,7 +1609,10 @@ func registerTools(s *mcp.Server, c *Client) {
 		if err != nil {
 			return nil, inboundEmailResult{}, err
 		}
-		return nil, inboundEmailResult{Enabled: in.Enabled, Address: in.Address, AIAvailable: in.AIAvailable, AIUsage: in.AIUsage}, nil
+		return nil, inboundEmailResult{
+			Enabled: in.Enabled, Address: in.Address, AIAvailable: in.AIAvailable, AIUsage: in.AIUsage,
+			Senders: in.Senders, TurnedAway: in.TurnedAway, ForwardingConfirmations: in.ForwardingConfirmations,
+		}, nil
 	})
 
 	type addressResult struct {
@@ -1626,12 +1641,15 @@ func registerTools(s *mcp.Server, c *Client) {
 	})
 
 	type updateInboundEmailArgs struct {
-		ProjectID         string `json:"project_id" jsonschema:"project UUID"`
-		Active            *bool  `json:"active,omitempty" jsonschema:"turn intake on or off without losing the address"`
-		TargetColumn      string `json:"target_column,omitempty" jsonschema:"new column key for inbound cards"`
-		ClearTargetColumn bool   `json:"clear_target_column,omitempty" jsonschema:"set true to reset to the board's first column"`
-		Rotate            bool   `json:"rotate,omitempty" jsonschema:"set true to mint a new token; the old address stops accepting mail immediately"`
-		AIEnrich          *bool  `json:"ai_enrich,omitempty" jsonschema:"turn AI cards for email threads on or off; on returns an error when the server has no AI key"`
+		ProjectID           string `json:"project_id" jsonschema:"project UUID"`
+		Active              *bool  `json:"active,omitempty" jsonschema:"turn intake on or off without losing the address"`
+		TargetColumn        string `json:"target_column,omitempty" jsonschema:"new column key for inbound cards"`
+		ClearTargetColumn   bool   `json:"clear_target_column,omitempty" jsonschema:"set true to reset to the board's first column"`
+		Rotate              bool   `json:"rotate,omitempty" jsonschema:"set true to mint a new token; the old address stops accepting mail immediately"`
+		AIEnrich            *bool  `json:"ai_enrich,omitempty" jsonschema:"turn AI cards for email threads on or off; on returns an error when the server has no AI key"`
+		AIAlways            *bool  `json:"ai_always,omitempty" jsonschema:"write every email up with AI, not only forwarded threads and long emails"`
+		AIInstructions      string `json:"ai_instructions,omitempty" jsonschema:"your own instructions sent with the AI prompt, up to 1000 characters"`
+		ClearAIInstructions bool   `json:"clear_ai_instructions,omitempty" jsonschema:"set true to remove the AI instructions"`
 	}
 	addTool(s, &mcp.Tool{
 		Name: "update_inbound_email",
@@ -1654,8 +1672,16 @@ func registerTools(s *mcp.Server, c *Client) {
 		if args.AIEnrich != nil {
 			patch["aiEnrich"] = *args.AIEnrich
 		}
+		if args.AIAlways != nil {
+			patch["aiAlways"] = *args.AIAlways
+		}
+		if args.ClearAIInstructions {
+			patch["aiInstructions"] = ""
+		} else if args.AIInstructions != "" {
+			patch["aiInstructions"] = args.AIInstructions
+		}
 		if len(patch) == 0 {
-			return nil, addressResult{}, fmt.Errorf("nothing to update: pass active, target_column, clear_target_column, rotate and/or ai_enrich")
+			return nil, addressResult{}, fmt.Errorf("nothing to update: pass active, target_column, clear_target_column, rotate, ai_enrich, ai_always, ai_instructions and/or clear_ai_instructions")
 		}
 		addr, err := c.UpdateInboundEmail(ctx, args.ProjectID, patch)
 		if err != nil {
@@ -1669,6 +1695,46 @@ func registerTools(s *mcp.Server, c *Client) {
 		Description: "Turn off email-to-card for a board. Board admins only. Not plan-gated, so a downgraded workspace can still disable it.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args projectIDArgs) (*mcp.CallToolResult, okResult, error) {
 		if err := c.DisableInboundEmail(ctx, args.ProjectID); err != nil {
+			return nil, okResult{}, err
+		}
+		return nil, okResult{OK: true}, nil
+	})
+
+	type senderResult struct {
+		Sender InboundSender `json:"sender"`
+	}
+	type addInboundSenderArgs struct {
+		ProjectID string `json:"project_id" jsonschema:"project UUID"`
+		Pattern   string `json:"pattern" jsonschema:"an exact address such as invoices@stripe.com, or @stripe.com for the whole domain"`
+	}
+	addTool(s, &mcp.Tool{
+		Name: "add_inbound_sender",
+		Description: "Let someone who isn't on the board email cards to it: an exact address, or @domain for a whole domain. " +
+			"Board admins on Pro boards only. Cards from the sender are created as you. Their mail must still pass SPF, DKIM and DMARC, " +
+			"and allowed senders can make up to 200 cards a day per board. Returns an error for an invalid pattern, " +
+			"a whole free email provider such as @gmail.com, or a board that already has 50 (400); " +
+			"when the pattern is already allowed (409); and when email to card is off (404).",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args addInboundSenderArgs) (*mcp.CallToolResult, senderResult, error) {
+		pattern := strings.TrimSpace(args.Pattern)
+		if pattern == "" {
+			return nil, senderResult{}, fmt.Errorf("pattern is required: an address, or @domain for a whole domain")
+		}
+		snd, err := c.AddInboundSender(ctx, args.ProjectID, pattern)
+		if err != nil {
+			return nil, senderResult{}, err
+		}
+		return nil, senderResult{Sender: *snd}, nil
+	})
+
+	type removeInboundSenderArgs struct {
+		ProjectID string `json:"project_id" jsonschema:"project UUID"`
+		SenderID  string `json:"sender_id" jsonschema:"allowed sender UUID, the id from get_inbound_email's senders"`
+	}
+	addTool(s, &mcp.Tool{
+		Name:        "remove_inbound_sender",
+		Description: "Remove an allowed sender from a board's email to card. Their mail is turned away from then on. Board admins only. Not plan-gated.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args removeInboundSenderArgs) (*mcp.CallToolResult, okResult, error) {
+		if err := c.RemoveInboundSender(ctx, args.ProjectID, args.SenderID); err != nil {
 			return nil, okResult{}, err
 		}
 		return nil, okResult{OK: true}, nil

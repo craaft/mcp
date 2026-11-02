@@ -1828,7 +1828,50 @@ type InboundAddress struct {
 	TargetColumn *string `json:"targetColumn"` // column key; nil = board's first column
 	Active       bool    `json:"active"`
 	AIEnrich     bool    `json:"aiEnrich"` // AI cards for email threads are on
-	CreatedAt    string  `json:"createdAt"`
+	AIAlways     bool    `json:"aiAlways"` // every email is written up with AI, not only threads and long emails
+	// AIInstructions are the board admins' own instructions, sent with the
+	// AI prompt. Up to 1000 characters; "" when none are set.
+	AIInstructions string `json:"aiInstructions"`
+	CreatedAt      string `json:"createdAt"`
+}
+
+// InboundSenderOwner is the board admin who added an allowed sender.
+type InboundSenderOwner struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// InboundSender is an allowed sender beyond the board's members: a lower-case
+// exact address ("invoices@stripe.com") or a whole domain ("@stripe.com").
+// Cards from it are created as AddedBy. NeedsOwner is true when that person
+// was deleted or can no longer open the board; the sender's mail is then
+// turned away until someone adds it again.
+type InboundSender struct {
+	ID         string              `json:"id"`
+	Pattern    string              `json:"pattern"`
+	AddedBy    *InboundSenderOwner `json:"addedBy"`
+	NeedsOwner bool                `json:"needsOwner"`
+	CreatedAt  string              `json:"createdAt"`
+}
+
+// InboundTurnedAway is a sender whose mail was dropped in the last 7 days.
+// Reason is a code such as not_member, no_board_access, unverified,
+// allowed_sender_no_owner, daily_limit, inactive or not_pro.
+type InboundTurnedAway struct {
+	From     string `json:"from"`
+	Reason   string `json:"reason"`
+	Count    int    `json:"count"`
+	LastSeen string `json:"lastSeen"`
+}
+
+// InboundForwardingConfirmation is a Gmail forwarding confirmation request
+// received at the address in the last 7 days. It is shown here instead of
+// becoming a card.
+type InboundForwardingConfirmation struct {
+	RequestedBy string `json:"requestedBy"`
+	Code        string `json:"code"`
+	Link        string `json:"link"`
+	ReceivedAt  string `json:"receivedAt"`
 }
 
 // AIUsage is a workspace's AI cards this calendar month (UTC) against its
@@ -1845,6 +1888,10 @@ type InboundEmail struct {
 	Address     *InboundAddress `json:"address"` // nil when email-to-card has never been enabled
 	AIAvailable bool            `json:"aiAvailable"`
 	AIUsage     *AIUsage        `json:"aiUsage"` // nil from servers that don't report it
+	// The lists below are present only when Enabled is true.
+	Senders                 []InboundSender                 `json:"senders"`
+	TurnedAway              []InboundTurnedAway             `json:"turnedAway"`
+	ForwardingConfirmations []InboundForwardingConfirmation `json:"forwardingConfirmations"`
 }
 
 // GetInboundEmail returns a board's inbound intake address (Enabled false and
@@ -1908,6 +1955,30 @@ func (c *Client) UpdateInboundEmail(ctx context.Context, projectID string, patch
 // plan-gated, so a downgraded workspace can still disable it.
 func (c *Client) DisableInboundEmail(ctx context.Context, projectID string) error {
 	_, _, err := c.do(ctx, http.MethodDelete, "/api/v1/projects/"+url.PathEscape(projectID)+"/inbound-email", nil)
+	return err
+}
+
+// AddInboundSender adds an allowed sender to a board's email to card: an
+// exact address or "@domain" for a whole domain. Board admins on Pro boards
+// only. The API answers 400 for an invalid pattern, a whole free email
+// provider domain or a board that already has 50, 409 when the pattern is
+// already on the list and 404 when email to card is off.
+func (c *Client) AddInboundSender(ctx context.Context, projectID, pattern string) (*InboundSender, error) {
+	data, _, err := c.do(ctx, http.MethodPost, "/api/v1/projects/"+url.PathEscape(projectID)+"/inbound-email/senders", map[string]any{"pattern": pattern})
+	if err != nil {
+		return nil, err
+	}
+	var snd InboundSender
+	if err := json.Unmarshal(data, &snd); err != nil {
+		return nil, fmt.Errorf("decode inbound sender: %w", err)
+	}
+	return &snd, nil
+}
+
+// RemoveInboundSender removes an allowed sender from a board. Board admins
+// only. Not plan-gated.
+func (c *Client) RemoveInboundSender(ctx context.Context, projectID, senderID string) error {
+	_, _, err := c.do(ctx, http.MethodDelete, "/api/v1/projects/"+url.PathEscape(projectID)+"/inbound-email/senders/"+url.PathEscape(senderID), nil)
 	return err
 }
 

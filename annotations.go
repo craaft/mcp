@@ -119,6 +119,8 @@ var toolAnnotations = map[string]*mcp.ToolAnnotations{
 	"enable_inbound_email":  additiveTool("Turn on email to card", false),
 	"update_inbound_email":  destructiveTool("Update email-to-card settings", false), // rotate mints a new address each call
 	"disable_inbound_email": destructiveTool("Turn off email to card", true),
+	"add_inbound_sender":    additiveTool("Allow a sender to email the board", false),
+	"remove_inbound_sender": destructiveTool("Remove an allowed sender", true),
 
 	// Members and access
 	"list_members":        readTool("List workspace members"),
