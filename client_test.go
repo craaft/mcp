@@ -492,10 +492,9 @@ func TestGetInboundEmailDecodesSenders(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"enabled": true, "aiAvailable": true,
-			"address":                 map[string]any{"email": "t@in.craaft.io", "aiAlways": true, "aiInstructions": "Be brief"},
-			"senders":                 []map[string]any{{"id": "s1", "pattern": "@acme.test", "addedBy": nil, "needsOwner": true}},
-			"turnedAway":              []map[string]any{{"from": "x@y.test", "reason": "daily_limit", "count": 4}},
-			"forwardingConfirmations": []map[string]any{{"requestedBy": "me@gmail.com", "code": "42"}},
+			"address":    map[string]any{"email": "t@in.craaft.io", "aiAlways": true, "aiInstructions": "Be brief"},
+			"senders":    []map[string]any{{"id": "s1", "pattern": "@acme.test", "addedBy": nil, "needsOwner": true}},
+			"turnedAway": []map[string]any{{"from": "x@y.test", "reason": "daily_limit", "count": 4}},
 		})
 	}))
 	t.Cleanup(srv.Close)
@@ -511,9 +510,6 @@ func TestGetInboundEmailDecodesSenders(t *testing.T) {
 	}
 	if len(in.TurnedAway) != 1 || in.TurnedAway[0].Reason != "daily_limit" || in.TurnedAway[0].Count != 4 {
 		t.Errorf("turnedAway = %+v", in.TurnedAway)
-	}
-	if len(in.ForwardingConfirmations) != 1 || in.ForwardingConfirmations[0].Code != "42" {
-		t.Errorf("forwardingConfirmations = %+v", in.ForwardingConfirmations)
 	}
 }
 

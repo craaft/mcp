@@ -1864,16 +1864,6 @@ type InboundTurnedAway struct {
 	LastSeen string `json:"lastSeen"`
 }
 
-// InboundForwardingConfirmation is a Gmail forwarding confirmation request
-// received at the address in the last 7 days. It is shown here instead of
-// becoming a card.
-type InboundForwardingConfirmation struct {
-	RequestedBy string `json:"requestedBy"`
-	Code        string `json:"code"`
-	Link        string `json:"link"`
-	ReceivedAt  string `json:"receivedAt"`
-}
-
 // AIUsage is a workspace's AI cards this calendar month (UTC) against its
 // plan's monthly limit (50 on Pro). Past the limit, email threads become
 // standard cards until the month ends.
@@ -1889,9 +1879,8 @@ type InboundEmail struct {
 	AIAvailable bool            `json:"aiAvailable"`
 	AIUsage     *AIUsage        `json:"aiUsage"` // nil from servers that don't report it
 	// The lists below are present only when Enabled is true.
-	Senders                 []InboundSender                 `json:"senders"`
-	TurnedAway              []InboundTurnedAway             `json:"turnedAway"`
-	ForwardingConfirmations []InboundForwardingConfirmation `json:"forwardingConfirmations"`
+	Senders    []InboundSender     `json:"senders"`
+	TurnedAway []InboundTurnedAway `json:"turnedAway"`
 }
 
 // GetInboundEmail returns a board's inbound intake address (Enabled false and

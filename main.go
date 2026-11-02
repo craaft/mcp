@@ -1579,13 +1579,12 @@ func registerTools(s *mcp.Server, c *Client) {
 
 	// ── email-to-card (inbound email) ─────────────────────────────────
 	type inboundEmailResult struct {
-		Enabled                 bool                            `json:"enabled"`
-		Address                 *InboundAddress                 `json:"address,omitempty"`
-		AIAvailable             bool                            `json:"ai_available"`
-		AIUsage                 *AIUsage                        `json:"ai_usage,omitempty"`
-		Senders                 []InboundSender                 `json:"senders,omitempty"`
-		TurnedAway              []InboundTurnedAway             `json:"turned_away,omitempty"`
-		ForwardingConfirmations []InboundForwardingConfirmation `json:"forwarding_confirmations,omitempty"`
+		Enabled     bool                `json:"enabled"`
+		Address     *InboundAddress     `json:"address,omitempty"`
+		AIAvailable bool                `json:"ai_available"`
+		AIUsage     *AIUsage            `json:"ai_usage,omitempty"`
+		Senders     []InboundSender     `json:"senders,omitempty"`
+		TurnedAway  []InboundTurnedAway `json:"turned_away,omitempty"`
 	}
 	addTool(s, &mcp.Tool{
 		Name: "get_inbound_email",
@@ -1600,8 +1599,7 @@ func registerTools(s *mcp.Server, c *Client) {
 			"so its mail is turned away until someone adds it again. " +
 			"turned_away lists senders dropped in the last 7 days with a reason code (not_member, no_board_access, unverified, " +
 			"allowed_sender_no_owner, daily_limit, inactive, not_pro). " +
-			"forwarding_confirmations lists Gmail forwarding confirmation requests received in the last 7 days, with the code and link, " +
-			"shown here instead of becoming a card. " +
+			"Gmail's request to confirm the address as a forwarding destination arrives as a card with its code. " +
 			"ai_usage is the workspace's AI cards this calendar month (UTC) against its plan's limit (50 on Pro); " +
 			"past the limit, email threads become standard cards until the month ends.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args projectIDArgs) (*mcp.CallToolResult, inboundEmailResult, error) {
@@ -1611,7 +1609,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		}
 		return nil, inboundEmailResult{
 			Enabled: in.Enabled, Address: in.Address, AIAvailable: in.AIAvailable, AIUsage: in.AIUsage,
-			Senders: in.Senders, TurnedAway: in.TurnedAway, ForwardingConfirmations: in.ForwardingConfirmations,
+			Senders: in.Senders, TurnedAway: in.TurnedAway,
 		}, nil
 	})
 

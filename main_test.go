@@ -425,8 +425,8 @@ func TestEveryToolIsAnnotated(t *testing.T) {
 	}
 }
 
-// get_inbound_email passes the allowed senders, the turned-away log and Gmail
-// forwarding confirmations through, alongside the new AI fields.
+// get_inbound_email passes the allowed senders and the turned-away log
+// through, alongside the new AI fields.
 func TestGetInboundEmailReturnsSendersAndTurnedAway(t *testing.T) {
 	c, _ := stubAPI(t, map[string]any{
 		"GET /api/v1/projects/p1/inbound-email": map[string]any{
@@ -438,8 +438,6 @@ func TestGetInboundEmailReturnsSendersAndTurnedAway(t *testing.T) {
 				{"id": "s2", "pattern": "bills@acme.test", "addedBy": nil, "needsOwner": true, "createdAt": "2026-11-01T00:00:00Z"},
 			},
 			"turnedAway": []map[string]any{{"from": "x@y.test", "reason": "not_member", "count": 2, "lastSeen": "2026-11-02T00:00:00Z"}},
-			"forwardingConfirmations": []map[string]any{{"requestedBy": "me@gmail.com", "code": "123456",
-				"link": "https://mail.google.com/confirm", "receivedAt": "2026-11-02T00:00:00Z"}},
 		},
 	})
 	res := callTool(t, toolSession(t, c), "get_inbound_email", map[string]any{"project_id": "p1"})
@@ -448,7 +446,6 @@ func TestGetInboundEmailReturnsSendersAndTurnedAway(t *testing.T) {
 		`"aiAlways":true`, `"aiInstructions":"Keep titles short"`,
 		`"pattern":"@stripe.com"`, `"needsOwner":true`, `"addedBy":null`,
 		`"turned_away":[{"count":2,"from":"x@y.test","lastSeen":"2026-11-02T00:00:00Z","reason":"not_member"}]`,
-		`"forwarding_confirmations":[{"code":"123456","link":"https://mail.google.com/confirm"`,
 	} {
 		if !strings.Contains(string(out), want) {
 			t.Errorf("result is missing %s: %s", want, out)
