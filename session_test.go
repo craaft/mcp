@@ -221,3 +221,32 @@ func TestClientHasTimeouts(t *testing.T) {
 		t.Fatalf("timeouts: %v / %v", c.http.Timeout, c.httpLong.Timeout)
 	}
 }
+
+// GET /mcp is refused so no client holds a stream open (and an instance
+// billed) between requests. A client must still connect and call tools,
+// which the SDK client does by carrying on without the stream.
+func TestNoStandaloneStream(t *testing.T) {
+	h := noStandaloneStream(mcp.NewStreamableHTTPHandler(newServerGetter("http://localhost:0"), mcpHandlerOptions()))
+	srv := httptest.NewServer(withTestToken(h, "cra_testtoken"))
+	t.Cleanup(srv.Close)
+
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("GET status = %d, want 405", resp.StatusCode)
+	}
+
+	ctx := context.Background()
+	cl := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "test"}, nil)
+	cs, err := cl.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: srv.URL, MaxRetries: -1}, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	t.Cleanup(func() { _ = cs.Close() })
+	if _, err := cs.ListTools(ctx, nil); err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+}

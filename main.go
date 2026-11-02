@@ -34,7 +34,7 @@ func main() {
 		port = "8080"
 	}
 
-	mcpHandler := mcp.NewStreamableHTTPHandler(newServerGetter(baseURL), mcpHandlerOptions())
+	mcpHandler := noStandaloneStream(mcp.NewStreamableHTTPHandler(newServerGetter(baseURL), mcpHandlerOptions()))
 
 	mux := http.NewServeMux()
 
@@ -150,6 +150,22 @@ func newServerGetter(baseURL string) func(*http.Request) *mcp.Server {
 // every in-flight request down with a 503. A client whose session timed out
 // gets a 404 and starts a new one.
 const sessionIdleTimeout = 30 * time.Minute
+
+// noStandaloneStream answers GET /mcp with 405, which the Streamable HTTP
+// spec allows for a server that never sends messages of its own. craaft
+// only ever answers requests, and an open GET stream kept a Cloud Run
+// instance billed for as long as a client stayed connected. Replies to a
+// POST still stream as before.
+func noStandaloneStream(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.Header().Set("Allow", "POST, DELETE")
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 func mcpHandlerOptions() *mcp.StreamableHTTPOptions {
 	return &mcp.StreamableHTTPOptions{SessionTimeout: sessionIdleTimeout}
