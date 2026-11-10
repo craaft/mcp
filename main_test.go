@@ -379,6 +379,43 @@ func TestGetBoardActivityPassesFiltersAndCursor(t *testing.T) {
 	}
 }
 
+func TestGetWorkloadKeepsTheUnassignedRow(t *testing.T) {
+	c, calls := stubAPI(t, map[string]any{
+		"GET /api/v1/projects/p1/workload": map[string]any{
+			"personCardLimit": 3,
+			"people": []map[string]any{
+				{"userId": "u1", "name": "Ama", "active": 4, "queued": 1, "overdue": 1, "dueSoon": 0, "highPriority": 2, "overLimit": true},
+				{"userId": nil, "name": "Unassigned", "active": 0, "queued": 5, "overdue": 0, "dueSoon": 0, "highPriority": 0, "overLimit": false},
+			},
+		},
+	})
+	res := callTool(t, toolSession(t, c), "get_workload", map[string]any{"project_id": "p1"})
+	if (*calls)[0].URI != "/api/v1/projects/p1/workload" {
+		t.Errorf("URI = %q", (*calls)[0].URI)
+	}
+	out, _ := json.Marshal(res.StructuredContent)
+	for _, want := range []string{`"personCardLimit":3`, `"userId":"u1"`, `"overLimit":true`, `"name":"Unassigned"`} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("result = %s, missing %s", out, want)
+		}
+	}
+}
+
+func TestUpdateProjectSetsAndClearsPersonCardLimit(t *testing.T) {
+	c, calls := stubAPI(t, map[string]any{
+		"PATCH /api/v1/projects/p1": map[string]any{"id": "p1", "name": "B", "columnCounts": map[string]any{}},
+	})
+	sess := toolSession(t, c)
+	callTool(t, sess, "update_project", map[string]any{"project_id": "p1", "person_card_limit": 4})
+	callTool(t, sess, "update_project", map[string]any{"project_id": "p1", "clear_person_card_limit": true})
+	if got := (*calls)[0].Body["personCardLimit"]; got != float64(4) {
+		t.Errorf("set: personCardLimit = %v, want 4", got)
+	}
+	if v, ok := (*calls)[1].Body["personCardLimit"]; !ok || v != nil {
+		t.Errorf("clear: body = %v, want personCardLimit null", (*calls)[1].Body)
+	}
+}
+
 // Every registered tool must reach clients with a title and annotations (the
 // connector directory flags tools without them), and toolAnnotations must not
 // keep entries for tools that no longer exist.

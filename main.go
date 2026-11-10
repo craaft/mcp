@@ -126,7 +126,7 @@ func runServer(ctx context.Context, srv *http.Server, budget time.Duration) erro
 
 // newServerGetter returns the getServer func for the streamable handler. The
 // SDK calls it on every HTTP request, including ones on an existing session,
-// so it builds the server and its 77 tools once and hands the same one back.
+// so it builds the server and its 78 tools once and hands the same one back.
 // Tools take the bearer token from the request they are called on (see
 // withRequestToken), so nothing about a caller is captured here.
 func newServerGetter(baseURL string) func(*http.Request) *mcp.Server {
@@ -874,6 +874,28 @@ func registerTools(s *mcp.Server, c *Client) {
 		return nil, *page, nil
 	})
 
+	// ── get_workload ──────────────────────────────────────────────
+	type workloadArgs struct {
+		ProjectID string `json:"project_id" jsonschema:"project UUID"`
+	}
+	addTool(s, &mcp.Tool{
+		Name: "get_workload",
+		Description: "Get how much each person holds on a board: open cards (not archived, not in a done " +
+			"column) per assignee, split into active and queued. Queued cards are in the board's first open " +
+			"column (its To Do), unless that column has a card limit; every other open column counts as " +
+			"active. Each person also has overdue, dueSoon (due today or in the next 6 days, UTC) and " +
+			"highPriority (high or urgent) counts, and overLimit when the board sets personCardLimit and " +
+			"their active cards are above it. Use it to answer who is overloaded or who has room for a new " +
+			"card. Only people with at least 1 open card are listed, with the unassigned row (no userId) " +
+			"last; use list_board_members to find people with nothing open.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args workloadArgs) (*mcp.CallToolResult, Workload, error) {
+		w, err := c.GetWorkload(ctx, args.ProjectID)
+		if err != nil {
+			return nil, Workload{}, err
+		}
+		return nil, *w, nil
+	})
+
 	// ── get_hygiene ───────────────────────────────────────────────
 	type hygieneArgs struct {
 		Category string `json:"category" jsonschema:"which counter to expand: ghosts (no due date, priority or assignee), stuck (untouched 14+ days), or mine_no_date (assigned to you with no due date)"`
@@ -1096,12 +1118,14 @@ func registerTools(s *mcp.Server, c *Client) {
 		ShowFiles        *bool  `json:"show_files,omitempty" jsonschema:"show or hide the files button on the board's top bar"`
 		ShowStandup      *bool  `json:"show_standup,omitempty" jsonschema:"show or hide the standup button on the board's top bar"`
 		ShowActivity     *bool  `json:"show_activity,omitempty" jsonschema:"show or hide the activity button on the board's top bar"`
+		PersonCardLimit  int    `json:"person_card_limit,omitempty" jsonschema:"the most active cards one person should hold on the board, 1 to 999; get_workload and the Workload panel flag people above it. It never blocks an assignment"`
+		ClearPersonLimit bool   `json:"clear_person_card_limit,omitempty" jsonschema:"set true to remove the per-person card limit"`
 	}
 	addTool(s, &mcp.Tool{
 		Name: "update_project",
 		Description: "Partially update a board: name, description, brief, favourite, visibility, colour scheme, " +
 			"background, text colour and which top-bar buttons (milestones, archived cards, files, standup, " +
-			"activity) it shows; new boards start with all 5 buttons off. Board admins only - anyone else gets 404. Omitted fields are left unchanged. A board " +
+			"activity) it shows, and the per-person card limit for the workload view; new boards start with all 5 buttons off. Board admins only - anyone else gets 404. Omitted fields are left unchanged. A board " +
 			"has a background image or a background colour, never both: setting one clears the other.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args updateProjectArgs) (*mcp.CallToolResult, projectResult, error) {
 		patch := map[string]any{}
@@ -1160,6 +1184,11 @@ func registerTools(s *mcp.Server, c *Client) {
 		}
 		if args.ShowActivity != nil {
 			patch["showActivity"] = *args.ShowActivity
+		}
+		if args.PersonCardLimit != 0 {
+			patch["personCardLimit"] = args.PersonCardLimit
+		} else if args.ClearPersonLimit {
+			patch["personCardLimit"] = nil
 		}
 		if len(patch) == 0 {
 			return nil, projectResult{}, fmt.Errorf("nothing to update")

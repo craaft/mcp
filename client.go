@@ -186,11 +186,15 @@ type Project struct {
 	// ShowMilestones / ShowArchived / ShowFiles / ShowStandup / ShowActivity
 	// are the board admin's toggles for the milestones, archived-cards,
 	// files, standup and activity buttons on the board's top bar.
-	ShowMilestones  bool           `json:"showMilestones"`
-	ShowArchived    bool           `json:"showArchived"`
-	ShowFiles       bool           `json:"showFiles"`
-	ShowStandup     bool           `json:"showStandup"`
-	ShowActivity    bool           `json:"showActivity"`
+	ShowMilestones bool `json:"showMilestones"`
+	ShowArchived   bool `json:"showArchived"`
+	ShowFiles      bool `json:"showFiles"`
+	ShowStandup    bool `json:"showStandup"`
+	ShowActivity   bool `json:"showActivity"`
+	// PersonCardLimit is the most active cards one person should hold on
+	// the board (the Workload panel); nil means no limit. Single-board
+	// reads only.
+	PersonCardLimit *int           `json:"personCardLimit,omitempty"`
 	MyRole          string         `json:"myRole"`
 	Visibility      string         `json:"visibility"`
 	MyBoardRole     string         `json:"myBoardRole"`
@@ -840,6 +844,53 @@ func (c *Client) GetCardEvents(ctx context.Context, cardID string) ([]CardEvent,
 		return nil, fmt.Errorf("decode card events: %w", err)
 	}
 	return events, nil
+}
+
+// WorkloadPerson is one person's open cards on a board. UserID is empty for
+// the unassigned row.
+type WorkloadPerson struct {
+	UserID       string `json:"userId,omitempty"`
+	Name         string `json:"name"`
+	Active       int    `json:"active"`
+	Queued       int    `json:"queued"`
+	Overdue      int    `json:"overdue"`
+	DueSoon      int    `json:"dueSoon"`
+	HighPriority int    `json:"highPriority"`
+	OverLimit    bool   `json:"overLimit"`
+}
+
+// Workload is a board's open cards per person.
+type Workload struct {
+	PersonCardLimit *int             `json:"personCardLimit,omitempty"`
+	People          []WorkloadPerson `json:"people"`
+}
+
+// GetWorkload returns a board's open cards per person (GET
+// /projects/{id}/workload).
+func (c *Client) GetWorkload(ctx context.Context, projectID string) (*Workload, error) {
+	data, _, err := c.do(ctx, http.MethodGet, "/api/v1/projects/"+url.PathEscape(projectID)+"/workload", nil)
+	if err != nil {
+		return nil, err
+	}
+	var raw struct {
+		PersonCardLimit *int `json:"personCardLimit"`
+		People          []struct {
+			WorkloadPerson
+			UserID *string `json:"userId"`
+		} `json:"people"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("decode workload: %w", err)
+	}
+	w := &Workload{PersonCardLimit: raw.PersonCardLimit, People: make([]WorkloadPerson, 0, len(raw.People))}
+	for _, p := range raw.People {
+		person := p.WorkloadPerson
+		if p.UserID != nil {
+			person.UserID = *p.UserID
+		}
+		w.People = append(w.People, person)
+	}
+	return w, nil
 }
 
 // BoardActivity is one entry of a board's activity feed. Which fields are

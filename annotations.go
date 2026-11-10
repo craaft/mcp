@@ -72,6 +72,7 @@ var toolAnnotations = map[string]*mcp.ToolAnnotations{
 	"get_card_prompt":     readTool("Get a card as a prompt"),
 	"get_card_activity":   readTool("Get a card's activity"),
 	"get_board_activity":  readTool("Get a board's activity"),
+	"get_workload":        readTool("Get a board's workload"),
 	"create_card":         additiveTool("Create a card", false),
 	"update_card":         destructiveTool("Update a card", true),
 	"move_card":           additiveTool("Move a card", true),
