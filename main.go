@@ -236,7 +236,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		Description: "Get a Kanban board: its columns, its brief (project.brief: the board's goals, " +
 			"constraints, voice, decisions and links; read it before working on the board's cards) and " +
 			"every card with metadata (title, due date, " +
-			"assignee, priority, size, tags, checklist progress). Card descriptions are omitted — use " +
+			"assignee, priority, size, tags, checklist progress). Card descriptions are omitted. Use " +
 			"get_card for the body, or get_card_detail for the body plus comments, events, checklist " +
 			"and attachments in one call.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args getBoardArgs) (*mcp.CallToolResult, getBoardResult, error) {
@@ -258,7 +258,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	addTool(s, &mcp.Tool{
 		Name: "search_cards",
 		Description: "Search for cards across all accessible projects by title and description text. " +
-			"Each hit's description is a ≤180-character snippet, not the full body — use get_card or " +
+			"Each hit's description is a ≤180-character snippet, not the full body. Use get_card or " +
 			"get_card_detail when you need the rest.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args searchCardsArgs) (*mcp.CallToolResult, searchCardsResult, error) {
 		limit := args.Limit
@@ -282,7 +282,7 @@ func registerTools(s *mcp.Server, c *Client) {
 	addTool(s, &mcp.Tool{
 		Name: "get_card",
 		Description: "Get a single card by its ID, with full metadata including description. Prefer this " +
-			"over get_board when you already know the card ID — get_board omits description and returns " +
+			"over get_board when you already know the card ID. get_board omits description and returns " +
 			"every card on the board. Use get_card_detail instead when you also need comments, events, " +
 			"checklist or attachments.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args getCardArgs) (*mcp.CallToolResult, getCardResult, error) {
@@ -306,7 +306,7 @@ func registerTools(s *mcp.Server, c *Client) {
 		Name: "get_card_detail",
 		Description: "Get a card plus its comments, activity events (newest 100, oldest-first), " +
 			"checklist, attachments and GitHub pull requests and branches in one call. Prefer this over get_card + get_comments + " +
-			"get_card_activity + get_checklist + list_attachments — one authorised round-trip instead of five.",
+			"get_card_activity + get_checklist + list_attachments: one authorised round-trip instead of five.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args getCardArgs) (*mcp.CallToolResult, getCardDetailResult, error) {
 		d, err := c.GetCardDetail(ctx, args.CardID)
 		if err != nil {
